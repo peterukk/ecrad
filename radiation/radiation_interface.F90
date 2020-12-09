@@ -200,7 +200,11 @@ contains
     use radiation_homogeneous_sw, only : solver_homogeneous_sw
     use radiation_homogeneous_lw, only : solver_homogeneous_lw
     use radiation_save,           only : save_radiative_properties
-
+#ifdef USE_TIMING
+    ! Timing library
+    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
+                                     gptlpercent, gptloverhead
+#endif
     ! Treatment of gas and hydrometeor optics 
     use radiation_monochromatic,  only : &
          &   gas_optics_mono         => gas_optics, &
@@ -277,6 +281,9 @@ contains
     character(*), parameter :: rad_prop_base_file_name = "radiative_properties"
 
     real(jprb) :: hook_handle
+#ifdef USE_TIMING
+    integer :: ret
+#endif
 
     if (lhook) call dr_hook('radiation_interface:radiation',0,hook_handle)
 
@@ -303,6 +310,9 @@ contains
       ! extinction due to Rayleigh scattering), Planck functions and
       ! incoming shortwave flux at each g-point, for the specified
       ! range of atmospheric columns
+#ifdef USE_TIMING
+    ret =  gptlstart('gas_optics')
+#endif     
       if (config%i_gas_model == IGasModelMonochromatic) then
         call gas_optics_mono(ncol,nlev,istartcol,iendcol, config, &
              &  single_level, thermodynamics, gas, lw_albedo, &
@@ -315,7 +325,10 @@ contains
              &  planck_hl=planck_hl, lw_emission=lw_emission, &
              &  incoming_sw=incoming_sw)
       end if
-
+#ifdef USE_TIMING
+    ret =  gptlstop('gas_optics')
+    ret =  gptlstart('clouds')
+#endif  
       if (config%do_clouds) then
         ! Crop the cloud fraction to remove clouds that have too small
         ! a fraction or water content; after this, we can safely
@@ -338,7 +351,10 @@ contains
                &  od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
         end if
       end if ! do_clouds
-
+#ifdef USE_TIMING
+    ret =  gptlstop('clouds')
+    ret =  gptlstart('aerosols')
+#endif  
       if (config%use_aerosols) then
         if (config%i_gas_model == IGasModelMonochromatic) then
 !          call add_aerosol_optics_mono(nlev,istartcol,iendcol, &
@@ -356,7 +372,9 @@ contains
           g_lw   = 0.0_jprb
         end if
       end if
-
+#ifdef USE_TIMING
+    ret =  gptlstop('aerosols')
+#endif  
       ! For diagnostic purposes, save these intermediate variables to
       ! a NetCDF file
       if (config%do_save_radiative_properties) then
@@ -382,23 +400,41 @@ contains
         end if
 
         if (config%i_solver_lw == ISolverMcICA) then
+#ifdef USE_TIMING
+    ret =  gptlstart('mcica_lw')
+#endif  
           ! Compute fluxes using the McICA longwave solver
           call solver_mcica_lw(nlev,istartcol,iendcol, &
                &  config, single_level, cloud, & 
                &  od_lw, ssa_lw, g_lw, od_lw_cloud, ssa_lw_cloud, &
                &  g_lw_cloud, planck_hl, lw_emission, lw_albedo, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('mcica_lw')
+#endif  
         else if (config%i_solver_lw == ISolverSPARTACUS) then
           ! Compute fluxes using the SPARTACUS longwave solver
+#ifdef USE_TIMING
+    ret =  gptlstart('spartacus_lw')
+#endif  
           call solver_spartacus_lw(nlev,istartcol,iendcol, &
                &  config, thermodynamics, cloud, & 
                &  od_lw, ssa_lw, g_lw, od_lw_cloud, ssa_lw_cloud, g_lw_cloud, &
                &  planck_hl, lw_emission, lw_albedo, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('spartacus_lw')
+#endif  
         else if (config%i_solver_lw == ISolverTripleclouds) then
+#ifdef USE_TIMING
+    ret =  gptlstart('tripleclouds_lw')
+#endif  
           ! Compute fluxes using the Tripleclouds longwave solver
           call solver_tripleclouds_lw(nlev,istartcol,iendcol, &
                &  config, cloud, & 
                &  od_lw, ssa_lw, g_lw, od_lw_cloud, ssa_lw_cloud, g_lw_cloud, &
                &  planck_hl, lw_emission, lw_albedo, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('tripleclouds_lw')
+#endif
         elseif (config%i_solver_lw == ISolverHomogeneous) then
           ! Compute fluxes using the homogeneous solver
           call solver_homogeneous_lw(nlev,istartcol,iendcol, &
@@ -406,10 +442,16 @@ contains
                &  od_lw, ssa_lw, g_lw, od_lw_cloud, ssa_lw_cloud, &
                &  g_lw_cloud, planck_hl, lw_emission, lw_albedo, flux)
         else
+#ifdef USE_TIMING
+    ret =  gptlstart('cloudless_solver_lw')
+#endif
           ! Compute fluxes using the cloudless solver
           call solver_cloudless_lw(nlev,istartcol,iendcol, &
                &  config, od_lw, ssa_lw, g_lw, &
                &  planck_hl, lw_emission, lw_albedo, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('cloudless_solver_lw')
+#endif              
         end if
       end if
 
@@ -420,25 +462,43 @@ contains
 
         if (config%i_solver_sw == ISolverMcICA) then
           ! Compute fluxes using the McICA shortwave solver
+#ifdef USE_TIMING
+    ret =  gptlstart('mcica_sw')
+#endif
           call solver_mcica_sw(nlev,istartcol,iendcol, &
                &  config, single_level, cloud, & 
                &  od_sw, ssa_sw, g_sw, od_sw_cloud, ssa_sw_cloud, &
                &  g_sw_cloud, sw_albedo_direct, sw_albedo_diffuse, &
                &  incoming_sw, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('mcica_sw')
+#endif               
         else if (config%i_solver_sw == ISolverSPARTACUS) then
           ! Compute fluxes using the SPARTACUS shortwave solver
+#ifdef USE_TIMING
+    ret =  gptlstart('spartacus_sw')
+#endif
           call solver_spartacus_sw(nlev,istartcol,iendcol, &
                &  config, single_level, thermodynamics, cloud, & 
                &  od_sw, ssa_sw, g_sw, od_sw_cloud, ssa_sw_cloud, &
                &  g_sw_cloud, sw_albedo_direct, sw_albedo_diffuse, &
                &  incoming_sw, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('spartacus_sw')
+#endif
         else if (config%i_solver_sw == ISolverTripleclouds) then
           ! Compute fluxes using the Tripleclouds shortwave solver
+#ifdef USE_TIMING
+    ret =  gptlstart('tripleclouds_sw')
+#endif
           call solver_tripleclouds_sw(nlev,istartcol,iendcol, &
                &  config, single_level, cloud, & 
                &  od_sw, ssa_sw, g_sw, od_sw_cloud, ssa_sw_cloud, &
                &  g_sw_cloud, sw_albedo_direct, sw_albedo_diffuse, &
                &  incoming_sw, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('tripleclouds_sw')
+#endif
         elseif (config%i_solver_sw == ISolverHomogeneous) then
           ! Compute fluxes using the homogeneous solver
           call solver_homogeneous_sw(nlev,istartcol,iendcol, &
@@ -448,13 +508,24 @@ contains
                &  incoming_sw, flux)
         else
           ! Compute fluxes using the cloudless solver
+#ifdef USE_TIMING
+    ret =  gptlstart('cloudless_sw')
+#endif
           call solver_cloudless_sw(nlev,istartcol,iendcol, &
                &  config, single_level, od_sw, ssa_sw, g_sw, &
                &  sw_albedo_direct, sw_albedo_diffuse, &
                &  incoming_sw, flux)
+#ifdef USE_TIMING
+    ret =  gptlstop('cloudless_sw')
+#endif
         end if
       end if
-
+! #ifdef USE_TIMING
+!   ! End timers
+!   !
+!   ret = gptlpr(0)
+!   ret = gptlfinalize()
+! #endif
       ! Store surface downwelling fluxes in bands from fluxes in g
       ! points
       call flux%calc_surface_spectral(config, istartcol, iendcol)

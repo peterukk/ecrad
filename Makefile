@@ -44,6 +44,36 @@ ifdef SINGLE_PRECISION
 CPPFLAGS += -DSINGLE_PRECISION
 endif
 
+# ------------- NEW FOR OPT -------------- 
+ifdef FAST_EXPONENTIAL
+CPPFLAGS += -DFAST_EXPONENTIAL
+endif
+
+# Use the GPTL timing library?
+ifdef USE_TIMING
+CPPFLAGS += -DUSE_TIMING
+TIMING_INCLUDE += -I$(TIME_DIR)/include
+LDFLAGS_TIME += -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib
+LIBS_TIMING += -lgptl  -rdynamic  
+endif
+
+# Use the GPTL timing library with PAPI enabled to estimate computational intensity
+ifdef USE_FULL_TIMING
+# GPTL + PAPI 
+CPPFLAGS += -DUSE_TIMING  -DUSE_PAPI
+TIMING_INCLUDE += -I$(TIME_DIR)/include 
+LDFLAGS_TIME = -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib
+#LIBS_TIMING += -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib -lgptl -rdynamic -lpapi
+LIBS_TIMING +=  -lpthread -lgptl -rdynamic -lpapi
+endif
+
+# Use LIBDXSMM for small matrix-matrix multiplications in SPARTACUS
+ifdef USE_LIBXSMM
+LIBXSMM_INCLUDE = -I$(LIBXSMM_DIR)/include
+CPPFLAGS += -DUSE_LIBXSMM
+LDFLAGS_LIBXSMM = $(LIBXSMM_DIR)/lib/libxsmmf.a $(LIBXSMM_DIR)/lib/libxsmm.a -lpthread -lrt -ldl -lm 
+endif
+# ------------- NEW FOR OPT -------------- 
 # If PRINT_ENTRAPMENT_DATA=1 was given on the "make" command line
 # then the SPARTACUS shortwave solver will write data to fort.101 and
 # fort.102
@@ -63,14 +93,21 @@ endif
 
 # Consolidate flags
 export FC
+# ------------- NEW FOR OPT -------------- 
 export FCFLAGS = $(WARNFLAGS) $(BASICFLAGS) $(CPPFLAGS) -I../include \
-	$(OPTFLAGS) $(DEBUGFLAGS) $(NETCDF_INCLUDE) $(OMPFLAG)
-export LIBS    = $(LDFLAGS) -L../lib -lradsurf -lradiation -lutilities \
-	-lifsrrtm -ldrhook -lifsaux $(FCLIBS) $(NETCDF_LIB) $(OMPFLAG)
+	$(OPTFLAGS) $(DEBUGFLAGS) $(LIBXSMM_INCLUDE) $(NETCDF_INCLUDE) $(TIMING_INCLUDE)  $(OMPFLAG)
+export LIBS    = $(LDFLAGS) -L../lib  $(LDFLAGS_TIME) -lradsurf -lradiation -lutilities \
+	-lifsrrtm  -ldrhook -lifsaux $(FCLIBS) $(NETCDF_LIB) $(LIBS_TIMING) $(LDFLAGS_LIBXSMM) $(OMPFLAG) 
+# ------------- NEW FOR OPT -------------- 
+#export FCFLAGS = $(WARNFLAGS) $(BASICFLAGS) $(CPPFLAGS) -I../include \
+#	$(OPTFLAGS) $(DEBUGFLAGS) $(NETCDF_INCLUDE) $(OMPFLAG)
+#export LIBS    = $(LDFLAGS) -L../lib -lradsurf -lradiation -lutilities \
+#	-lifsrrtm -ldrhook -lifsaux $(FCLIBS) $(NETCDF_LIB) $(OMPFLAG)
 ifdef DR_HOOK
 LIBS += -ldl -lrt
 export CFLAGS = -g -O2
 endif
+
 
 
 #############################

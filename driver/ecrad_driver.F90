@@ -52,8 +52,15 @@ program ecrad_driver
   use ecrad_driver_config,      only : driver_config_type
   use ecrad_driver_read_input,  only : read_input
   use easy_netcdf
-
+#ifdef USE_TIMING
+  ! Timing library
+  use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
+                                   gptlpercent, gptloverhead
+#endif
   implicit none
+#ifdef USE_PAPI  
+#include "f90papi.h"
+#endif  
 
   ! The NetCDF file containing the input profiles
   type(netcdf_file)         :: file
@@ -108,6 +115,27 @@ program ecrad_driver
   real(kind=jprd) :: tstart, tstop
  
 
+#ifdef USE_TIMING
+  integer :: ret
+  ! print *, "using GPTL timing library"
+  !
+  ! Initialize timers
+  !
+  ret = gptlsetoption (gptlpercent, 1)        ! Turn on "% of" print
+  ret = gptlsetoption (gptloverhead, 0)       ! Turn off overhead estimate
+
+#ifdef USE_PAPI  
+print *, "SETTING PAPI ON"
+#ifdef SINGLE_PRECISION
+ret = GPTLsetoption (PAPI_SP_OPS, 1);
+#else
+ret = GPTLsetoption (PAPI_DP_OPS, 1);
+#endif
+#endif  
+
+  ret = gptlinitialize()
+  ret =  gptlstart('ecrad_total')
+#endif
   ! --------------------------------------------------------
   ! Section 2: Configure
   ! --------------------------------------------------------
@@ -354,5 +382,13 @@ program ecrad_driver
   if (driver_config%iverbose >= 2) then
     write(nulout,'(a)') '------------------------------------------------------------------------------------'
   end if
+  
+#ifdef USE_TIMING
+  ! End timers
+  !
+  ret =  gptlstop('ecrad_total')
+  ret = gptlpr(driver_config%nblocksize)
+  ret = gptlfinalize()
+#endif
 
 end program ecrad_driver

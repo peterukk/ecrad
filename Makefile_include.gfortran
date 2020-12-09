@@ -1,6 +1,20 @@
 # Fortran compiler executable -*- Makefile -*-
 FC = gfortran
 
+# ------------- NEW FOR OPT -------------- 
+NCHOME = /usr/
+NFHOME = /usr/
+NETCDF_INCLUDE = -I$(NFHOME)/include
+NETCDF_LIB = -lnetcdff -lnetcdf
+LDFLAGS += -L$(NFHOME)/lib -L$(NCHOME)/lib
+
+# The LIBXSMM library for multiplication of small matrices
+LIBXSMM_DIR = /home/peter/libxsmm-gcc/
+
+# The GPTL Timing library
+TIME_DIR = /home/peter/gptl-gcc
+# ------------- NEW FOR OPT -------------- 
+
 # Tell the compiler to accept C-preprocessor directives
 CPPFLAGS = -cpp
 
@@ -15,7 +29,10 @@ ifndef DEBUG
 # --NORMAL CONFIGURATION--
 
 # Optimization flags
-OPTFLAGS = -O3
+OPTFLAGS = -O3 -m64 -march=native -funroll-loops 
+
+#OPTFLAGS = -O1
+#OPTFLAGS = -O3 -fopt-info
 
 # Warning flags: all except those that warn about unused stuff
 WARNFLAGS = -Wall -Wno-unused-label -Wno-unused-dummy-argument -Wno-unused-variable
