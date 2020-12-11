@@ -8,4 +8,4 @@ config_*.nam
 test/ifs/_ecrad_meridian.nc
 test/ifs/diff.nc
 test/ifs/diff_spart.nc
-test/ifs/timing.000008
+test/ifs/timing.*
