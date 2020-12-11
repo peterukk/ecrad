@@ -13,7 +13,9 @@
 ! Email:   r.j.hogan@ecmwf.int
 !
 ! Modifications
-!   2018-10-15  R. Hogan  Added fast_expm_exchange_[23]
+!   2018-10-15  R. Hogan    Added fast_expm_exchange_[23]
+!   2020-12-xx  P. Ukkonen  Added an optimized expm routine for shortwave when nreg=3,
+!                           and related kernels
 !
 ! This module provides the neccessary mathematical functions for the
 ! SPARTACUS radiation scheme: matrix multiplication, matrix solvers
@@ -472,7 +474,7 @@ contains
 
   end function repeated_square
 
-  pure subroutine repeated_square_9(nrepeat,A,B)
+  pure subroutine repeated_square_sw_9(nrepeat,A,B)
     integer,    intent(in)            :: nrepeat
     real(jprb), intent(inout)         :: A(9,9)
     real(jprb), intent(out)           :: B(9,9)
@@ -499,7 +501,7 @@ contains
           A = B
       end if
     end do
-  end subroutine repeated_square_9
+  end subroutine repeated_square_sw_9
 
 
   ! --- SOLVE LINEAR EQUATIONS ---
@@ -868,7 +870,7 @@ contains
 
   end function solve_mat
 
-  pure subroutine mat_x_mat_square(m,iend,A,C)
+  pure subroutine mat_square_sw(m,iend,A,C)
 
     integer,    intent(in)                        :: m,iend
     real(jprb), intent(in),  dimension(iend,m,m)  :: A
@@ -877,7 +879,7 @@ contains
     integer    :: mblock, m2block
 
     ! Array-wise assignment
-    ! C = 0.0_jprb
+    C = 0.0_jprb
 
     ! Matrix has a sparsity pattern
     !     (C D E)
@@ -889,7 +891,6 @@ contains
 
     ! Do the top-left (C, D, F, G)
     do j2 = 1,m2block  !    1,6 
-      C(:,:,j2) = 0.0_jprb
       do j1 = 1,m2block !   1,6
         do j3 = 1,m2block ! 1,6
           C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
@@ -897,17 +898,14 @@ contains
         ! using sum was faster on GCC+AMD Zen platform but not on Intel
         ! C(:,j1,j2) = sum(A(:,j1,1:m2block)*A(:,1:m2block,j2),2)
       end do
-      ! C(:,7:9,j2) = 0.0_jprb
     end do
 
     do j2 = m2block+1,m  ! 7,9
-      C(:,:,j2) = 0.0_jprb
       ! Do the top-right (E & H)
       do j1 = 1,m2block  ! 1,6
         do j3 = 1,m      ! 1,9
           C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
         end do
-        ! C(:,j1,j2) = sum(A(:,j1,1:m)*A(:,1:m,j2),2)
       end do
 
       ! Do the bottom-right (I)
@@ -915,13 +913,12 @@ contains
         do j3 = m2block+1,m ! 7,9
           C(:,j1,j2) =  C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
         end do
-        ! C(:,j1,j2) = sum(A(:,j1,m2block+1:m)*A(:,m2block+1:m,j2),2)
       end do
     end do
 
-  end subroutine mat_x_mat_square
+  end subroutine mat_square_sw
 
-  pure subroutine mat_x_mat_square_9(iend,A,C)
+  pure subroutine mat_square_sw_9(iend,A,C)
 
     integer,    intent(in)                        :: iend
     real(jprb), intent(in),  dimension(iend,9,9)  :: A
@@ -945,7 +942,7 @@ contains
         ! do j3 = 1,6 ! 1,6
         !   C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
         ! end do
-
+        ! Further speedup: flatten last loop, only one write SIMD instruction
         C(:,j1,j2) = A(:,j1,1)*A(:,1,j2) + A(:,j1,2)*A(:,2,j2) &
         &          + A(:,j1,3)*A(:,3,j2) + A(:,j1,4)*A(:,4,j2) &
         &          + A(:,j1,5)*A(:,5,j2) + A(:,j1,6)*A(:,6,j2)
@@ -961,85 +958,21 @@ contains
     do j2 = 7,9  ! 7,9
       ! Do the top-right (E & H)
       do j1 = 1,6  ! 1,6
-        ! do j3 = 1,9      ! 1,9
-        !   C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
-        ! end do
         C(:,j1,j2) = A(:,j1,1)*A(:,1,j2) + A(:,j1,2)*A(:,2,j2) &
         &          + A(:,j1,3)*A(:,3,j2) + A(:,j1,4)*A(:,4,j2) &
         &          + A(:,j1,5)*A(:,5,j2) + A(:,j1,6)*A(:,6,j2) &
         &          + A(:,j1,7)*A(:,7,j2) + A(:,j1,8)*A(:,8,j2) &
         &          + A(:,j1,9)*A(:,9,j2)
       end do
-
       ! Do the bottom-right (I)
       do j1 = 7,9   ! 7,9
         C(:,j1,j2) = A(:,j1,7)*A(:,7,j2) + A(:,j1,8)*A(:,8,j2) + A(:,j1,9)*A(:,9,j2)
       end do
     end do
 
-  end subroutine mat_x_mat_square_9
+  end subroutine mat_square_sw_9
 
-  pure subroutine mat_x_mat_square_repeated(iend, nrepeat, C)
-
-    integer,    intent(in)                           :: iend,nrepeat
-    real(jprb), intent(inout),  dimension(iend,9,9)  :: C
-    real(jprb),                 dimension(iend,9,9)  :: A ! temp
-    integer    :: j1, j2, j3, jj
-    integer    :: mblock, m2block, m
-
-
-    ! Array-wise assignment
-    A = C ! input
-    ! Matrix has a sparsity pattern
-    !     (C D E)
-    ! A = (F G H)
-    !     (0 0 I)
-    
-    ! mblock = m/3       ! 
-    ! m2block = 2*mblock ! 
-    m = 9
-    mblock = 3
-    m2block = 6
-    
-    ! Do the top-left (C, D, F, G)
-    do jj = 1, nrepeat
-      C = 0.0_jprb
-      do j2 = 1,m2block  !    1,6 
-        do j1 = 1,m2block !   1,6
-          do j3 = 1,m2block ! 1,6
-            C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
-          end do
-          ! using sum was faster on GCC+AMD Zen platform but not on Intel
-          ! C(:,j1,j2) = sum(A(:,j1,1:m2block)*A(:,1:m2block,j2),2)
-        end do
-        ! C(:,7:9,j2) = 0.0_jprb
-      end do
-      
-      do j2 = m2block+1,m  ! 7,9
-        ! Do the top-right (E & H)
-        do j1 = 1,m2block  ! 1,6
-          do j3 = 1,m      ! 1,9
-            C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
-          end do
-          ! C(:,j1,j2) = sum(A(:,j1,1:m)*A(:,1:m,j2),2)
-        end do
-
-        ! Do the bottom-right (I)
-        do j1 = m2block+1,m   ! 7,9
-          do j3 = m2block+1,m ! 7,9
-            C(:,j1,j2) =  C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
-          end do
-          ! C(:,j1,j2) = sum(A(:,j1,m2block+1:m)*A(:,m2block+1:m,j2),2)
-        end do
-      end do
-      if (jj < nrepeat) then
-        A = C
-      end if
-    end do
-
-  end subroutine mat_x_mat_square_repeated
-
-  pure subroutine mat_x_mat_9(iend,A,B,C)
+  pure subroutine mat_x_mat_sw_9(iend,A,B,C)
 
     integer,    intent(in)                      :: iend
     real(jprb), intent(in), dimension(iend,9,9) :: A, B
@@ -1048,10 +981,6 @@ contains
 
     do j2 = 1,3  !    1,3 
       do j1 = 1,6 !   1,6   C, F
-        ! do j3 = 1,6 ! 1,6
-        !   C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
-        ! end do
-
         C(:,j1,j2) = A(:,j1,1)*B(:,1,j2) + A(:,j1,2)*B(:,2,j2) &
         &          + A(:,j1,3)*B(:,3,j2) + A(:,j1,4)*B(:,4,j2) &
         &          + A(:,j1,5)*B(:,5,j2) + A(:,j1,6)*B(:,6,j2)
@@ -1067,9 +996,6 @@ contains
     do j2 = 7,9  ! 7,9
       ! Do the top-right (E & H)
       do j1 = 1,6  ! 1,6
-        ! do j3 = 1,9      ! 1,9
-        !   C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
-        ! end do
         C(:,j1,j2) = A(:,j1,1)*B(:,1,j2) + A(:,j1,2)*B(:,2,j2) &
         &          + A(:,j1,3)*B(:,3,j2) + A(:,j1,4)*B(:,4,j2) &
         &          + A(:,j1,5)*B(:,5,j2) + A(:,j1,6)*B(:,6,j2) &
@@ -1083,12 +1009,12 @@ contains
       end do
     end do
 
-  end subroutine mat_x_mat_9
+  end subroutine mat_x_mat_sw_9
 
   !---------------------------------------------------------------------
   ! Solve AX=B, where A, X and B consist of iend m-by-m matrices
   ! Overwrite B with X. A is corrupted
-  pure subroutine solve_mat_9(iend,A,B)
+  pure subroutine solve_mat_sw_9(iend,A,B)
     integer,    intent(in) :: iend
     real(jprb), intent(inout) :: A(iend,9,9) ! A=LU is corrupted
     real(jprb), intent(inout) :: B(iend,9,9) ! X = B, both input and output
@@ -1097,22 +1023,15 @@ contains
     integer :: j,j1, j2, j3, mblock, m2block,m
     real(jprb) :: s(iend)
 
-    ! This routine is adapted from an in-place one, so we first copy
-    ! the input into the output.
-    ! LU = A
-
     !     (C   D  E)
     ! A = (-D -C  H)
     !     (0   0  I)
 
-    ! solve_mat_opt     0.560s
-    !   factorization   0.183s
-    
-    ! factorization of A into LU
-
     m = 9
-    mblock = 3 !m/3       ! 3
-    m2block = 6 !2*mblock ! 6
+    mblock = 3 !m/3       
+    m2block = 6 !2*mblock 
+
+    ! factorization of A into LU
 
     ! First do columns 1-6, for which only rows 1-6 have non-negative entries
     do j2 = 1, m2block
@@ -1152,7 +1071,6 @@ contains
       end if
     end do
 
-
     !---------------------------------------------------------------------
     ! Treat LU as an LU-factorization of an original matrix A, and
     ! return x where Ax=b. LU consists of n m-by-m matrices and b as n
@@ -1164,7 +1082,6 @@ contains
     !     (C   D  E)
     !     (F   G  H)
     !     (0   0  I)
-    
 
     ! Separate j3 (columns) into two regions to avoid redundant operations with zero
     do j3 = 1,m2block ! in this region B(:,7:9),A(:,7:9) are 0
@@ -1208,7 +1125,7 @@ contains
       end do
     end do
 
-  end subroutine solve_mat_9
+  end subroutine solve_mat_sw_9
 
 
   ! --- MATRIX EXPONENTIATION ---
@@ -1380,10 +1297,6 @@ contains
     where (expo < 0)
       expo = 0
     end where
-
-    ! EXPERIMENTAL: try using the mean expo for all g-points
-    ! print *, "max, min expo", maxval(expo), minval(expo)
-    ! expo =  nint(real(sum(expo))/iend)
     
     minexpo = minval(expo)
     ! Scale the input matrices by a power of 2
@@ -1398,15 +1311,15 @@ contains
     ret =  gptlstart('expm_Pade_mat_x_mat')
 #endif 
 #ifdef USE_TIMING
-    ret =  gptlstart('expm_mat_x_mat_squares')
+    ret =  gptlstart('expm_mat_squares')
 #endif 
-    call mat_x_mat_square_9(iend,A,A2)  ! These matrices have zeroes in the lower left corner AND repeated elements
-    call mat_x_mat_square_9(iend,A2,A4)
+    call mat_square_sw_9(iend,A,A2)  ! These matrices have zeroes in the lower left corner AND repeated elements
+    call mat_square_sw_9(iend,A2,A4)
 
 #ifdef USE_TIMING
-    ret =  gptlstop('expm_mat_x_mat_squares')
+    ret =  gptlstop('expm_mat_squares')
 #endif 
-    call mat_x_mat_9(iend,A2,A4,A6)     ! These matrices have zeroes in the lower left corner AND repeated elements
+    call mat_x_mat_sw_9(iend,A2,A4,A6)     ! These matrices have zeroes in the lower left corner AND repeated elements
 
     V = c(8)*A6 + c(6)*A4 + c(4)*A2
     do j3 = 1,9
@@ -1430,7 +1343,7 @@ contains
     ret =  gptlstart('expm_solve_mat')
 #endif 
     ! A = solve_mat(n,iend,m,V,U)
-    call solve_mat_9(iend,V,A)
+    call solve_mat_sw_9(iend,V,A)
 #ifdef USE_TIMING
     ret =  gptlstop('expm_solve_mat')
 #endif 
@@ -1450,7 +1363,7 @@ contains
 
     ! To improve efficiency, square all matrices with the minimum expo first, and then square individual matrices as needed
     do j1 = 1,minexpo
-      call mat_x_mat_square(9,iend,A,A2)
+      call mat_square_sw(9,iend,A,A2)
       A = A2
     end do
 
@@ -1463,7 +1376,7 @@ contains
         nrepeat = expo(j1)-minexpo
         !Square matrix nrepeat times 
         temp_in =  A(j1,:,:)
-        call repeated_square_9(nrepeat,temp_in,temp_out)
+        call repeated_square_sw_9(nrepeat,temp_in,temp_out)
         A(j1,:,:) = temp_out
       end if
     end do
@@ -3041,12 +2954,12 @@ contains
 !       ! A2 = mat_x_mat3(iend,m,A,A)
 !       ! A4 = mat_x_mat3(iend,m,A2,A2)
 ! #ifdef USE_TIMING
-!     ret =  gptlstart('mat_x_mat_squares')
+!     ret =  gptlstart('mat_squares')
 ! #endif 
 !       call mat_x_mat3_square(iend,m,A,A2)
 !       call mat_x_mat3_square(iend,m,A2,A4)
 ! #ifdef USE_TIMING
-!     ret =  gptlstop('mat_x_mat_squares')
+!     ret =  gptlstop('mat_squares')
 ! #endif 
 !       call mat_x_mat3(iend,m,A2,A4,A6)
 !       ! A6 = mat_x_mat3(iend,m,A2,A4)
