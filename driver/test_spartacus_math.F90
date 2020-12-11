@@ -89,7 +89,7 @@ program test_spartacus_math
 
   if (m == 2) then
 
-    call fast_expm_exchange_2(n,aa,bb,A)
+    call fast_expm_exchange(n,aa,bb,A)
     
     write(*,*) 'fast_expm(A) = '
     do j = 1,m
@@ -111,7 +111,7 @@ program test_spartacus_math
 
     ! Test zeros lead to identity matrix
     aa = 0.0_jprb
-    call fast_expm_exchange_2(n,aa,aa,A)
+    call fast_expm_exchange(n,aa,aa,A)
     
     write(*,*) 'expm(zeros) = '
     do j = 1,m
@@ -119,8 +119,8 @@ program test_spartacus_math
     end do
 
   else 
-    
-    call fast_expm_exchange_3(n,aa,bb,cc,dd,A)
+  
+    call fast_expm_exchange(n,aa,bb,cc,dd,A)
     
     write(*,*) 'fast_expm(A) = '
     do j = 1,m
@@ -145,7 +145,7 @@ program test_spartacus_math
 
     ! Test zeros lead to identity matrix
     aa = 0.0_jprb
-    call fast_expm_exchange_3(n,aa,aa,aa,aa,A)
+    call fast_expm_exchange(n,aa,aa,aa,aa,A)
     
     write(*,*) 'expm(zeros) = '
     do j = 1,m

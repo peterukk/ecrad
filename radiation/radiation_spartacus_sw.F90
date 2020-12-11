@@ -1310,10 +1310,10 @@ contains
 #define USE_FAST_EXPM_EXCHANGE 1
 #ifdef USE_FAST_EXPM_EXCHANGE
               if (nreg == 2) then
-                call fast_expm_exchange_2(ng, entrapment(:,2,1), entrapment(:,1,2), &
+                call fast_expm_exchange(ng, entrapment(:,2,1), entrapment(:,1,2), &
                      &                  albedo_part)
               else
-                call fast_expm_exchange_3(ng, entrapment(:,2,1), entrapment(:,1,2), &
+                call fast_expm_exchange(ng, entrapment(:,2,1), entrapment(:,1,2), &
                      &                          entrapment(:,3,2), entrapment(:,2,3), &
                      &                  albedo_part)
               end if
@@ -1409,10 +1409,10 @@ contains
 #endif 
 #ifdef USE_FAST_EXPM_EXCHANGE
               if (nreg == 2) then
-                call fast_expm_exchange_2(ng, entrapment(:,2,1), entrapment(:,1,2), &
+                call fast_expm_exchange(ng, entrapment(:,2,1), entrapment(:,1,2), &
                      &                  albedo_part)
               else
-                call fast_expm_exchange_3(ng, entrapment(:,2,1), entrapment(:,1,2), &
+                call fast_expm_exchange(ng, entrapment(:,2,1), entrapment(:,1,2), &
                      &                          entrapment(:,3,2), entrapment(:,2,3), &
                      &                  albedo_part)
               end if

@@ -69,9 +69,9 @@ module radiation_matrix
        &     solve_mat_3, lu_factorization, lu_substitution, solve_mat_n, &
        &     diag_mat_right_divide_3
 
-  ! interface fast_expm_exchange
-  !   module procedure fast_expm_exchange_2, fast_expm_exchange_3
-  ! end interface fast_expm_exchange
+  interface fast_expm_exchange
+    module procedure fast_expm_exchange_2, fast_expm_exchange_3
+  end interface fast_expm_exchange
 
 contains
 
@@ -616,9 +616,7 @@ contains
     !     ( 1        )   (U11 U12 U13)
     ! A = (L21  1    ) * (    U22 U23)
     !     (L31 L32  1)   (        U33)
-    ! print *, "A1",  A(1:iend,1,1)
-    ! print *, "A2",  A(1:iend,2,1)
-    L21 = A(1:iend,2,1) / A(1:iend,1,1) ! sometimes zeros
+    L21 = A(1:iend,2,1) / A(1:iend,1,1)
     L31 = A(1:iend,3,1) / A(1:iend,1,1)
     U22 = A(1:iend,2,2) - L21*A(1:iend,1,2)
     U23 = A(1:iend,2,3) - L21*A(1:iend,1,3)
@@ -1342,7 +1340,7 @@ contains
 
     real(jprb), dimension(iend,9,9) :: A2, A4, A6
     real(jprb), dimension(iend,9,9) :: U, V
-    real(jprb), dimension(9,9) :: temp_in, temp_out
+    real(jprb), dimension(9,9)      :: temp_in, temp_out
     real(jprb) :: normA(iend), sum_column(iend)
 
     integer    :: j1, j2, j3, j4,minexpo, nrepeat
@@ -1514,7 +1512,21 @@ contains
 
   end subroutine fast_expm_exchange_2
 
-   pure subroutine fast_expm_exchange_3(n,a,b,c,d,R)
+
+  !---------------------------------------------------------------------
+  ! Return the matrix exponential of n 3x3 matrices representing
+  ! conservative exchange between SPARTACUS regions, where the
+  ! matrices have the structure
+  !   (-a   b   0)
+  !   ( a -b-c  d)
+  !   ( 0   c  -d)
+  ! and a-d are assumed to be positive or zero.  The solution uses the
+  ! diagonalization method and is a slight generalization of the
+  ! solution provided in the appendix of Hogan et al. (GMD 2018),
+  ! which assumed c==d.
+  subroutine fast_expm_exchange_3(n,a,b,c,d,R)
+
+    use yomhook, only : lhook, dr_hook
 
     real(jprb), parameter :: my_epsilon = 1.0e-12_jprb
 
@@ -1541,6 +1553,10 @@ contains
     real(jprb), dimension(n) :: U22, U23, U33
 
     integer :: j1, j2
+
+    real(jprb) :: hook_handle
+
+    if (lhook) call dr_hook('radiation_matrix:fast_expm_exchange_3',0,hook_handle)
 
     ! Eigenvalues
     y2 = 0.5_jprb * (a(:)+b(:)+c(:)+d(:))
@@ -1630,6 +1646,8 @@ contains
              &          + V(:,j2,3)*X(:,3,j1)
       end do
     end do
+
+    if (lhook) call dr_hook('radiation_matrix:fast_expm_exchange_3',1,hook_handle)
 
   end subroutine fast_expm_exchange_3
 
