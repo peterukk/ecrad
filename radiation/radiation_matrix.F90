@@ -14,7 +14,7 @@
 !
 ! Modifications
 !   2018-10-15  R. Hogan    Added fast_expm_exchange_[23]
-!   2020-12-xx  P. Ukkonen  Added an optimized expm routine for shortwave when nreg=3,
+!   2020-12-15  P. Ukkonen  Added an optimized expm routine for shortwave when nreg=3,
 !                           and related kernels
 !
 ! This module provides the neccessary mathematical functions for the
@@ -27,7 +27,7 @@
 
 module radiation_matrix
 
-  use parkind1, only : jprb, jprd, jpim, jprm
+  use parkind1, only : jprb
 #ifdef USE_TIMING
   !
   ! Timing library
@@ -269,7 +269,7 @@ contains
       do j2 = 1,m
         do j1 = 1,m
           mat_x_mat_dense(:,j1,j2) = A(:,j1,1)*B(:,1,j2) &
-          &  + A(:,j1,2)*B(:,2,j2) + A(:,j1,3)*B(:,3,j2) 
+              &       + A(:,j1,2)*B(:,2,j2) + A(:,j1,3)*B(:,3,j2) 
         end do
       end do
 
@@ -282,7 +282,7 @@ contains
         do j1 = 1,m
           do j3 = 1,m
             mat_x_mat_dense(:,j1,j2) = mat_x_mat_dense(:,j1,j2) &
-                  &                  + A(:,j1,j3)*B(:,j3,j2)
+                &       + A(:,j1,j3)*B(:,j3,j2)
           end do
         end do
       end do
@@ -878,9 +878,6 @@ contains
     integer    :: j1, j2, j3
     integer    :: mblock, m2block
 
-    ! Array-wise assignment
-    C = 0.0_jprb
-
     ! Matrix has a sparsity pattern
     !     (C D E)
     ! A = (F G H)
@@ -891,6 +888,7 @@ contains
 
     ! Do the top-left (C, D, F, G)
     do j2 = 1,m2block  !    1,6 
+      C(:,:,j2) = 0.0_jprb
       do j1 = 1,m2block !   1,6
         do j3 = 1,m2block ! 1,6
           C(:,j1,j2) = C(:,j1,j2) + A(:,j1,j3)*A(:,j3,j2)
@@ -901,6 +899,7 @@ contains
     end do
 
     do j2 = m2block+1,m  ! 7,9
+      C(:,:,j2) = 0.0_jprb
       ! Do the top-right (E & H)
       do j1 = 1,m2block  ! 1,6
         do j3 = 1,m      ! 1,9
@@ -1264,7 +1263,6 @@ contains
     real(jprb) :: frac(iend)
     integer    :: expo(iend)
     real(jprb) :: scaling(iend)
-
     real(jprb) :: hook_handle
 #ifdef USE_TIMING
     ret =  gptlstart('expm_opt')
@@ -1306,6 +1304,7 @@ contains
         A(:,j2,j3) = A(:,j2,j3) * scaling
       end do
     end do
+
     ! Pade approximant of degree 7
 #ifdef USE_TIMING
     ret =  gptlstart('expm_Pade_mat_x_mat')
@@ -1313,13 +1312,13 @@ contains
 #ifdef USE_TIMING
     ret =  gptlstart('expm_mat_squares')
 #endif 
-    call mat_square_sw_9(iend,A,A2)  ! These matrices have zeroes in the lower left corner AND repeated elements
+    call mat_square_sw_9(iend,A,A2)    ! These matrices have zeroes in the lower left corner AND repeated elements
     call mat_square_sw_9(iend,A2,A4)
 
 #ifdef USE_TIMING
     ret =  gptlstop('expm_mat_squares')
 #endif 
-    call mat_x_mat_sw_9(iend,A2,A4,A6)     ! These matrices have zeroes in the lower left corner AND repeated elements
+    call mat_x_mat_sw_9(iend,A2,A4,A6) ! These matrices have zeroes in the lower left corner AND repeated elements
 
     V = c(8)*A6 + c(6)*A4 + c(4)*A2
     do j3 = 1,9
@@ -1339,11 +1338,13 @@ contains
 
     V = V-U
     A = 2.0_jprb*U
+
 #ifdef USE_TIMING
     ret =  gptlstart('expm_solve_mat')
 #endif 
     ! A = solve_mat(n,iend,m,V,U)
     call solve_mat_sw_9(iend,V,A)
+
 #ifdef USE_TIMING
     ret =  gptlstop('expm_solve_mat')
 #endif 

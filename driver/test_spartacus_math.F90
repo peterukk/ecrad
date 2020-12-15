@@ -119,7 +119,7 @@ program test_spartacus_math
     end do
 
   else 
-  
+    
     call fast_expm_exchange(n,aa,bb,cc,dd,A)
     
     write(*,*) 'fast_expm(A) = '

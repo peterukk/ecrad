@@ -44,6 +44,12 @@ ifdef SINGLE_PRECISION
 CPPFLAGS += -DSINGLE_PRECISION
 endif
 
+# Use shortwave reflectance-transmittance routine from ecRAD,
+# which uses the same equations but should be faster
+#ifdef USE_RTE_REFTRANS_SW
+CPPFLAGS += -DUSE_RTE_REFTRANS_SW
+#endif
+
 # ------------- NEW FOR OPT -------------- 
 ifdef FAST_EXPONENTIAL
 CPPFLAGS += -DFAST_EXPONENTIAL

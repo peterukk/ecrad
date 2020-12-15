@@ -332,8 +332,9 @@ ret = GPTLsetoption (PAPI_DP_OPS, 1);
       end do
       !$OMP END PARALLEL DO
       tstop = omp_get_wtime()
+      if (driver_config%nrepeat == 1) then
       write(nulout, '(a,g11.5,a)') 'Time elapsed in radiative transfer: ', tstop-tstart, ' seconds'
-      
+      end if
     else
       ! Run radiation scheme serially
       if (driver_config%iverbose >= 3) then

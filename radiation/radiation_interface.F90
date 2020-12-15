@@ -520,12 +520,7 @@ contains
 #endif
         end if
       end if
-! #ifdef USE_TIMING
-!   ! End timers
-!   !
-!   ret = gptlpr(0)
-!   ret = gptlfinalize()
-! #endif
+
       ! Store surface downwelling fluxes in bands from fluxes in g
       ! points
       call flux%calc_surface_spectral(config, istartcol, iendcol)
