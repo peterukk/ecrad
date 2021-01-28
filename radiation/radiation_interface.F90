@@ -39,7 +39,7 @@ contains
     use parkind1,         only : jprb
     use yomhook,          only : lhook, dr_hook
     use radiation_config, only : config_type, ISolverMcICA, &
-         &   IGasModelMonochromatic, IGasModelIFSRRTMG
+         &   IGasModelMonochromatic, IGasModelIFSRRTMG, IGasModelRRTMGP
 
     ! Currently there are two gas absorption models: RRTMG (default)
     ! and monochromatic
@@ -48,6 +48,7 @@ contains
          &   setup_cloud_optics_mono   => setup_cloud_optics, &
          &   setup_aerosol_optics_mono => setup_aerosol_optics
     use radiation_ifs_rrtm,       only :  setup_gas_optics
+    use radiation_ifs_rrtmgp,     only :  setup_gas_optics_rrtmgp
     use radiation_cloud_optics,   only :  setup_cloud_optics
     use radiation_aerosol_optics, only :  setup_aerosol_optics
 
@@ -66,6 +67,9 @@ contains
       call setup_gas_optics_mono(config, trim(config%directory_name))
     else if (config%i_gas_model == IGasModelIFSRRTMG) then
       call setup_gas_optics(config, trim(config%directory_name))
+    else if (config%i_gas_model == IGasModelRRTMGP) then
+      call setup_gas_optics_rrtmgp(config, trim(config%directory_name))
+
     end if
 
     ! Whether or not the "radiation" subroutine needs ssa_lw and g_lw
@@ -180,7 +184,7 @@ contains
 
     use radiation_io,             only : nulout
     use radiation_config,         only : config_type, &
-         &   IGasModelMonochromatic, IGasModelIFSRRTMG, &
+         &   IGasModelMonochromatic, IGasModelIFSRRTMG, IGasModelRRTMGP, &
          &   ISolverMcICA, ISolverSpartacus, ISolverHomogeneous, &
          &   ISolverTripleclouds
     use radiation_single_level,   only : single_level_type
@@ -211,6 +215,7 @@ contains
          &   cloud_optics_mono       => cloud_optics, &
          &   add_aerosol_optics_mono => add_aerosol_optics
     use radiation_ifs_rrtm,       only : gas_optics
+    use radiation_ifs_rrtmgp,     only : gas_optics_rrtmgp
     use radiation_cloud_optics,   only : cloud_optics
     use radiation_aerosol_optics, only : add_aerosol_optics
 
@@ -318,12 +323,18 @@ contains
              &  single_level, thermodynamics, gas, lw_albedo, &
              &  od_lw, od_sw, ssa_sw, &
              &  planck_hl, lw_emission, incoming_sw)
-      else
+      else if (config%i_gas_model == IGasModelIFSRRTMG) then
         call gas_optics(ncol,nlev,istartcol,iendcol, config, &
              &  single_level, thermodynamics, gas, &
              &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
              &  planck_hl=planck_hl, lw_emission=lw_emission, &
              &  incoming_sw=incoming_sw)
+      else 
+        call gas_optics_rrtmgp(iendcol-istartcol+1,nlev, config, &
+        &  single_level, thermodynamics, gas, &
+        &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
+        &  planck_hl=planck_hl, lw_emission=lw_emission, &
+        &  incoming_sw=incoming_sw)
       end if
 #ifdef USE_TIMING
     ret =  gptlstop('gas_optics')

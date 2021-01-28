@@ -93,10 +93,11 @@ module radiation_config
 
   ! Gas models
   enum, bind(c) 
-     enumerator IGasModelMonochromatic, IGasModelIFSRRTMG
+     enumerator IGasModelMonochromatic, IGasModelIFSRRTMG, IGasModelRRTMGP
   end enum
-  character(len=*), parameter :: GasModelName(0:1) = (/ 'Monochromatic', &
-       &                                                'RRTMG-IFS    ' /)
+  character(len=*), parameter :: GasModelName(0:2) = (/ 'Monochromatic', &
+       &                                                'RRTMG-IFS    ', &
+       &                                                'RRTMGP       ' /)
 
   ! Hydrometeor scattering models
   enum, bind(c) 
