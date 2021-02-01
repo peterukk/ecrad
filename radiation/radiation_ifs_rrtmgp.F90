@@ -29,8 +29,9 @@ module radiation_ifs_rrtmgp
   
       use radiation_config
       use yomhook,   only : lhook, dr_hook
+      use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
+      use mo_gas_concentrations, only: ty_gas_concs
 
-  
       type(config_type), intent(inout), target :: config
       character(len=*), intent(in)     :: directory
   
@@ -56,7 +57,9 @@ module radiation_ifs_rrtmgp
             & /)
       
       real(jprb) :: hook_handle
-  
+
+      ! type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
+
   
       if (lhook) call dr_hook('radiation_ifs_rrtmgp:setup_gas_optics',0,hook_handle)
   

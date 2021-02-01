@@ -103,7 +103,7 @@ export FC
 export FCFLAGS = $(WARNFLAGS) $(BASICFLAGS) $(CPPFLAGS) -I../include \
 	$(OPTFLAGS) $(DEBUGFLAGS) $(LIBXSMM_INCLUDE) $(NETCDF_INCLUDE) $(TIMING_INCLUDE)  $(OMPFLAG)
 export LIBS    = $(LDFLAGS) -L../lib  $(LDFLAGS_TIME) -lradsurf -lradiation -lutilities \
-	-lifsrrtm  -ldrhook -lifsaux $(FCLIBS) $(NETCDF_LIB) $(LIBS_TIMING) $(LDFLAGS_LIBXSMM) $(OMPFLAG) 
+	-lifsrrtm  -ldrhook -lifsaux  -lrrtmgp -lrte -lneural -lnetcdff -lnetcdf $(FCLIBS) $(NETCDF_LIB) $(LIBS_TIMING) $(LDFLAGS_LIBXSMM) $(OMPFLAG) 
 # ------------- NEW FOR OPT -------------- 
 #export FCFLAGS = $(WARNFLAGS) $(BASICFLAGS) $(CPPFLAGS) -I../include \
 #	$(OPTFLAGS) $(DEBUGFLAGS) $(NETCDF_INCLUDE) $(OMPFLAG)
@@ -134,9 +134,9 @@ help:
 	@echo "  clean                Remove all compiled files"
 
 ifdef DR_HOOK
-build: directories libifsaux libdrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
+build: directories librrtmgp libifsaux libdrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
 else
-build: directories libifsaux libdummydrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
+build: directories librrtmgp libifsaux libdummydrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
 endif
 
 # git cannot store empty directories so they may need to be created 
@@ -152,6 +152,9 @@ deps: clean-deps
 
 clean-deps:
 	rm -f include/*.intfb.h
+
+librrtmgp:
+	cd rte-rrtmgp-nn && $(MAKE)
 
 libifsaux:
 	cd ifsaux && $(MAKE)
@@ -200,6 +203,7 @@ clean-tests:
 	cd test/surface && $(MAKE) clean
 
 clean-toplevel:
+	cd rte-rrtmgp-nn && $(MAKE) clean
 	cd radiation && $(MAKE) clean
 	cd radsurf && $(MAKE) clean
 	cd driver && $(MAKE) clean
@@ -211,7 +215,7 @@ clean-utilities:
 	cd drhook && $(MAKE) clean
 
 clean-mods:
-	rm -f mod/*.mod
+	rm -f mod/*.mod mod/*__genmod.f90
 
 clean-symlinks:
 	rm -f practical/ecrad practical/data

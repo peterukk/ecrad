@@ -27,10 +27,10 @@ LIBRAD = ../lib/libradiation.a
 
 all: $(LIBRAD)
 
-$(LIBRAD): $(OBJECTS)
+$(LIBRAD): $(OBJECTS) 
 	ar r $(LIBRAD) $(OBJECTS)
 
-%.o: %.F90
+%.o: %.F90 
 	$(FC) $(FCFLAGS) -c $<
 
 clean:
