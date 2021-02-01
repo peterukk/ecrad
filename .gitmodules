@@ -1,4 +1,4 @@
 [submodule "rte-rrtmgp-nn"]
 	path = rte-rrtmgp-nn
-	url = https://github.com/peterukk/rte-rrtmgp-nn
-	ecrad-integration = ecrad-integration
+	url = https://github.com/peterukk/rte-rrtmgp-nn.git
+	branch = ecrad-integration
