@@ -29,7 +29,7 @@ ifndef DEBUG
 # --NORMAL CONFIGURATION--
 
 # Optimization flags
-OPTFLAGS = -O3 -m64 -march=native -funroll-loops 
+OPTFLAGS = -O3 -m64 -march=native -funroll-loops  -ffree-line-length-none
 
 #OPTFLAGS = -O1
 #OPTFLAGS = -O3 -fopt-info

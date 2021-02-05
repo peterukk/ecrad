@@ -55,16 +55,18 @@ ifdef FAST_EXPONENTIAL
 CPPFLAGS += -DFAST_EXPONENTIAL
 endif
 
+ifdef BLOCK_DERIVED_TYPES
+CPPFLAGS += -DBLOCK_DERIVED_TYPES
+endif
+
 # Use the GPTL timing library?
-ifdef USE_TIMING
+ifeq ($(GPTL_TIMING),1)
 CPPFLAGS += -DUSE_TIMING
 TIMING_INCLUDE += -I$(TIME_DIR)/include
 LDFLAGS_TIME += -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib
 LIBS_TIMING += -lgptl  -rdynamic  
-endif
-
 # Use the GPTL timing library with PAPI enabled to estimate computational intensity
-ifdef USE_FULL_TIMING
+else ifeq ($(GPTL_TIMING),2)
 # GPTL + PAPI 
 CPPFLAGS += -DUSE_TIMING  -DUSE_PAPI
 TIMING_INCLUDE += -I$(TIME_DIR)/include 

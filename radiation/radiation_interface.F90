@@ -62,6 +62,10 @@ contains
     ! names
     call config%consolidate()
 
+    call setup_gas_optics_rrtmgp(config, trim(config%directory_name))
+    print *, "dirname:", trim(config%directory_name)
+
+
     ! Load the look-up tables from files in the specified directory
     if (config%i_gas_model == IGasModelMonochromatic) then
       call setup_gas_optics_mono(config, trim(config%directory_name))
@@ -176,9 +180,13 @@ contains
   ! order of decreasing pressure then radiation_reverse will be called
   ! to reverse the order for the computation and then reverse the
   ! order of the output fluxes to match the inputs.
+! #ifdef BLOCK_DERIVED_TYPES
+! subroutine radiation(ncol, nlev, istartcol, iendcol, config, &
+!   &  single_level, thermodynamics, gas, cloud, aerosol, flux, od_lw, od_sw, ssa_sw, g_sw)
+! #else
   subroutine radiation(ncol, nlev, istartcol, iendcol, config, &
        &  single_level, thermodynamics, gas, cloud, aerosol, flux)
-
+! #endif
     use parkind1,                 only : jprb
     use yomhook,                  only : lhook, dr_hook
 
@@ -231,7 +239,10 @@ contains
     type(aerosol_type),       intent(in)   :: aerosol
     ! Output
     type(flux_type),          intent(inout):: flux
-
+! #ifdef BLOCK_DERIVED_TYPES
+!     real(jprb), dimension(config%n_g_lw,nlev,iendcol), intent(inout) :: od_lw
+!     real(jprb), dimension(config%n_g_sw,nlev,iendcol), intent(inout) :: od_sw, ssa_sw, g_sw
+! #endif
 
     ! Local variables
 
@@ -239,7 +250,9 @@ contains
     ! gases and aerosols at each longwave g-point, where the latter
     ! two variables are only defined if aerosol longwave scattering is
     ! enabled (otherwise both are treated as zero).
+! #ifndef BLOCK_DERIVED_TYPES
     real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_lw
+! #endif
     real(jprb), dimension(config%n_g_lw_if_scattering,nlev,istartcol:iendcol) :: &
          &  ssa_lw, g_lw
 
@@ -254,8 +267,9 @@ contains
 
     ! Layer optical depth, single scattering albedo and asymmetry factor of
     ! gases and aerosols at each shortwave g-point
+! #ifndef BLOCK_DERIVED_TYPES
     real(jprb), dimension(config%n_g_sw,nlev,istartcol:iendcol) :: od_sw, ssa_sw, g_sw
-
+! #endif
     ! Layer in-cloud optical depth, single scattering albedo and
     ! asymmetry factor of hydrometeors in each shortwave band
     real(jprb), dimension(config%n_bands_sw,nlev,istartcol:iendcol)   :: &
@@ -644,9 +658,9 @@ contains
     end if
 
     ! Run radiation scheme on reversed profiles
-    call radiation(ncol, nlev,istartcol,iendcol, &
-         &  config, single_level, thermodynamics_rev, gas_rev, &
-         &  cloud_rev, aerosol_rev, flux_rev)
+    ! call radiation(ncol, nlev,istartcol,iendcol, &
+    !      &  config, single_level, thermodynamics_rev, gas_rev, &
+    !      &  cloud_rev, aerosol_rev, flux_rev)
 
     ! Reorder fluxes
     if (allocated(flux%lw_up)) then

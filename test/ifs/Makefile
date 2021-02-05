@@ -17,6 +17,11 @@ test: test_default test_noaer test_expran test_tripleclouds test_spartacus \
 # overlap
 test_default:
 	$(DRIVER) $(CONFIG) $(INPUT).nc $(INPUT)_default_out.nc
+	
+# (a) Default IFS settings, more columns
+# overlap
+test_default_big:
+	$(DRIVER) $(CONFIG) inputs_bigg.nc inputs_bigg_default_out.nc
 
 # (b) Turn off aerosols
 test_noaer:

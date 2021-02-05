@@ -55,7 +55,15 @@ contains
     use radiation_adding_ica_sw, only  : adding_ica_sw
     use radiation_cloud_generator, only: cloud_generator
 
+#ifdef USE_TIMING
+    ! Timing library
+    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
+                                     gptlpercent, gptloverhead
+#endif
     implicit none
+#ifdef USE_PAPI  
+#include "f90papi.h"
+#endif  
 
     ! Inputs
     integer, intent(in) :: nlev               ! number of model levels
@@ -127,7 +135,7 @@ contains
     integer :: ng
 
     ! Loop indices for level, column and g point
-    integer :: jlev, jcol, jg
+    integer :: jlev, jcol, jg, ret
 
     real(jprb) :: hook_handle
 
@@ -146,8 +154,12 @@ contains
       if (single_level%cos_sza(jcol) > 0.0_jprb) then
         cos_sza = single_level%cos_sza(jcol)
 
+#ifdef USE_TIMING
+    ret =  gptlstart('clear_sky')
+#endif    
         ! Clear-sky calculation - first compute clear-sky reflectance,
         ! transmittance etc at each model level
+
         if (.not. config%do_sw_delta_scaling_with_gases) then
           ! Delta-Eddington scaling has already been performed to the
           ! aerosol part of od, ssa and g
@@ -180,13 +192,19 @@ contains
                  &  trans_dir_dir_clear(:,jlev) )
           end do
         end if
+#ifdef USE_TIMING
+    ret =  gptlstop('clear_sky')
+    ret =  gptlstart('adding_ica_sw')
+#endif 
 
         ! Use adding method to compute fluxes
         call adding_ica_sw(ng, nlev, incoming_sw(:,jcol), &
              &  albedo_diffuse(:,jcol), albedo_direct(:,jcol), spread(cos_sza,1,ng), &
              &  ref_clear, trans_clear, ref_dir_clear, trans_dir_diff_clear, &
              &  trans_dir_dir_clear, flux_up, flux_dn_diffuse, flux_dn_direct)
-        
+#ifdef USE_TIMING
+    ret =  gptlstop('adding_ica_sw')
+#endif 
         ! Sum over g-points to compute and save clear-sky broadband
         ! fluxes
         flux%sw_up_clear(jcol,:) = sum(flux_up,1)
@@ -202,7 +220,9 @@ contains
         ! Store spectral downwelling fluxes at surface
         flux%sw_dn_diffuse_surf_clear_g(:,jcol) = flux_dn_diffuse(:,nlev+1)
         flux%sw_dn_direct_surf_clear_g(:,jcol)  = flux_dn_direct(:,nlev+1)
-
+#ifdef USE_TIMING
+    ret =  gptlstart('cloud_generator')
+#endif 
         ! Do cloudy-sky calculation
         call cloud_generator(ng, nlev, config%i_overlap_scheme, &
              &  single_level%iseed(jcol), &
@@ -211,7 +231,10 @@ contains
              &  config%cloud_inhom_decorr_scaling, cloud%fractional_std(jcol,:), &
              &  config%pdf_sampler, od_scaling, total_cloud_cover, &
              &  is_beta_overlap=config%use_beta_overlap)
-
+#ifdef USE_TIMING
+    ret =  gptlstop('cloud_generator')
+    ret =  gptlstart('all_sky')
+#endif 
         ! Store total cloud cover
         flux%cloud_cover_sw(jcol) = total_cloud_cover
         
@@ -228,6 +251,7 @@ contains
               ! In single precision we need to protect against the
               ! case that od_total > 0.0 and ssa_total > 0.0 but
               ! od_total*ssa_total == 0 due to underflow
+
               do jg = 1,ng
                 if (od_total(jg) > 0.0_jprb) then
                   scat_od = ssa(jg,jlev,jcol)*od(jg,jlev,jcol) &
@@ -272,13 +296,13 @@ contains
               trans_dir_dir(:,jlev) = trans_dir_dir_clear(:,jlev)
             end if
           end do
-            
+
           ! Use adding method to compute fluxes for an overcast sky
           call adding_ica_sw(ng, nlev, incoming_sw(:,jcol), &
                &  albedo_diffuse(:,jcol), albedo_direct(:,jcol), spread(cos_sza,1,ng), &
                &  reflectance, transmittance, ref_dir, trans_dir_diff, &
                &  trans_dir_dir, flux_up, flux_dn_diffuse, flux_dn_direct)
-          
+
           ! Store overcast broadband fluxes
           flux%sw_up(jcol,:) = sum(flux_up,1)
           if (allocated(flux%sw_dn_direct)) then
@@ -307,7 +331,7 @@ contains
                &     + (1.0_jprb - total_cloud_cover)*flux%sw_dn_diffuse_surf_clear_g(:,jcol)
           flux%sw_dn_direct_surf_g(:,jcol) = total_cloud_cover *flux%sw_dn_direct_surf_g(:,jcol) &
                &     + (1.0_jprb - total_cloud_cover)*flux%sw_dn_direct_surf_clear_g(:,jcol)
-          
+
         else
           ! No cloud in profile and clear-sky fluxes already
           ! calculated: copy them over
@@ -320,7 +344,9 @@ contains
           flux%sw_dn_direct_surf_g(:,jcol)  = flux%sw_dn_direct_surf_clear_g(:,jcol)
 
         end if ! Cloud is present in profile
-
+#ifdef USE_TIMING
+        ret =  gptlstop('all_sky')
+#endif
       else
         ! Set fluxes to zero if sun is below the horizon
         flux%sw_up(jcol,:) = 0.0_jprb
