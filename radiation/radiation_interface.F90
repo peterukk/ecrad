@@ -48,7 +48,7 @@ contains
          &   setup_cloud_optics_mono   => setup_cloud_optics, &
          &   setup_aerosol_optics_mono => setup_aerosol_optics
     use radiation_ifs_rrtm,       only :  setup_gas_optics
-    use radiation_ifs_rrtmgp,     only :  setup_gas_optics_rrtmgp
+    ! use radiation_ifs_rrtmgp,     only :  setup_gas_optics_ifs_rrtmgp
     use radiation_cloud_optics,   only :  setup_cloud_optics
     use radiation_aerosol_optics, only :  setup_aerosol_optics
 
@@ -62,8 +62,8 @@ contains
     ! names
     call config%consolidate()
 
-    call setup_gas_optics_rrtmgp(config, trim(config%directory_name))
-    print *, "dirname:", trim(config%directory_name)
+    ! call setup_gas_optics_ifs_rrtmgp(config, trim(config%directory_name))
+    ! print *, "dirname:", trim(config%directory_name)
 
 
     ! Load the look-up tables from files in the specified directory
@@ -72,7 +72,7 @@ contains
     else if (config%i_gas_model == IGasModelIFSRRTMG) then
       call setup_gas_optics(config, trim(config%directory_name))
     else if (config%i_gas_model == IGasModelRRTMGP) then
-      call setup_gas_optics_rrtmgp(config, trim(config%directory_name))
+      call setup_gas_optics_ifs_rrtmgp(config, trim(config%directory_name))
 
     end if
 
@@ -223,9 +223,12 @@ contains
          &   cloud_optics_mono       => cloud_optics, &
          &   add_aerosol_optics_mono => add_aerosol_optics
     use radiation_ifs_rrtm,       only : gas_optics
-    use radiation_ifs_rrtmgp,     only : gas_optics_rrtmgp
+    ! use radiation_ifs_rrtmgp,     only : gas_optics_ifs_rrtmgp
+    ! ^ For some mysterious reason, caused catastrophic error on ifort.
+    ! Moved the subroutine to this file instead, and works fine
     use radiation_cloud_optics,   only : cloud_optics
     use radiation_aerosol_optics, only : add_aerosol_optics
+    use mo_gas_optics_rrtmgp,     only: ty_gas_optics_rrtmgp
 
     ! Inputs
     integer, intent(in) :: ncol               ! number of columns
@@ -344,7 +347,7 @@ contains
              &  planck_hl=planck_hl, lw_emission=lw_emission, &
              &  incoming_sw=incoming_sw)
       else 
-        call gas_optics_rrtmgp(iendcol-istartcol+1,nlev, config, &
+        call gas_optics_ifs_rrtmgp(iendcol-istartcol+1,nlev, config, &
         &  single_level, thermodynamics, gas, &
         &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
         &  planck_hl=planck_hl, lw_emission=lw_emission, &
@@ -706,5 +709,88 @@ contains
     end if
 
   end subroutine radiation_reverse
+
+  subroutine gas_optics_ifs_rrtmgp(ncol,nlev, &
+         &  config, single_level, thermodynamics, gas, & 
+         &  od_lw, od_sw, ssa_sw, lw_albedo, planck_hl, lw_emission, &
+         &  incoming_sw)
+  
+    use parkind1,                 only : jprb, jpim
+    use yomhook,   only : lhook, dr_hook
+
+    use radiation_config,         only : config_type, ISolverSpartacus
+    use radiation_thermodynamics, only : thermodynamics_type
+    use radiation_single_level,   only : single_level_type
+    use radiation_gas
+    use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
+
+
+    integer, intent(in) :: ncol               ! number of columns
+    integer, intent(in) :: nlev               ! number of model levels
+    type(config_type), intent(in) :: config
+    type(single_level_type),  intent(in) :: single_level
+    type(thermodynamics_type),intent(in) :: thermodynamics
+    type(gas_type),           intent(in) :: gas
+
+    ! Longwave albedo of the surface
+    real(jprb), dimension(config%n_g_lw,ncol), &
+          &  intent(in), optional :: lw_albedo
+
+    ! Gaseous layer optical depth in longwave and shortwave, and
+    ! shortwave single scattering albedo (i.e. fraction of extinction
+    ! due to Rayleigh scattering) at each g-point
+    real(jprb), dimension(config%n_g_lw,nlev,ncol), intent(out) :: &
+          &   od_lw
+    real(jprb), dimension(config%n_g_sw,nlev,ncol), intent(out) :: &
+          &   od_sw, ssa_sw
+
+    ! The Planck function (emitted flux from a black body) at half
+    ! levels at each longwave g-point
+    real(jprb), dimension(config%n_g_lw,nlev+1,ncol), &
+          &   intent(out), optional :: planck_hl
+    ! Planck function for the surface (W m-2)
+    real(jprb), dimension(config%n_g_lw,ncol), &
+          &   intent(out), optional :: lw_emission
+
+    ! The incoming shortwave flux into a plane perpendicular to the
+    ! incoming radiation at top-of-atmosphere in each of the shortwave
+    ! g-points
+    real(jprb), dimension(config%n_g_sw,ncol), &
+          &   intent(out), optional :: incoming_sw
+
+    real(jprb) :: incoming_sw_scale(ncol)
+
+
+    integer :: jlev, jgreorder, jg, ig, iband, jcol
+
+    real(jprb) :: hook_handle
+
+  end subroutine gas_optics_ifs_rrtmgp
+
+  subroutine setup_gas_optics_ifs_rrtmgp(config, directory)
+  
+    use radiation_config
+    use yomhook,   only : lhook, dr_hook
+    use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
+    use mo_gas_concentrations, only: ty_gas_concs
+
+    type(config_type), intent(inout), target :: config
+    character(len=*), intent(in)     :: directory
+
+    integer :: irep ! For implied do
+
+    real(jprb) :: hook_handle
+
+    type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
+
+
+    if (lhook) call dr_hook('radiation_ifs_rrtmgp:setup_gas_optics',0,hook_handle)
+
+    ! The IFS implementation of RRTMG uses many global variables.  In
+    ! the IFS these will have been set up already; otherwise set them
+    ! up now.
+
+
+  end subroutine setup_gas_optics_ifs_rrtmgp
 
 end module radiation_interface

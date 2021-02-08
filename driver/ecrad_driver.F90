@@ -52,6 +52,7 @@ program ecrad_driver
   use ecrad_driver_config,      only : driver_config_type
   use ecrad_driver_read_input,  only : read_input, read_input_blocked
   use easy_netcdf
+  
 #ifdef USE_TIMING
   ! Timing library
   use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &

@@ -19,13 +19,13 @@ module radiation_ifs_rrtmgp
 
     implicit none
   
-    public  :: setup_gas_optics_rrtmgp, gas_optics_rrtmgp
+    ! public  :: setup_gas_optics_ifs_rrtmgp, gas_optics_ifs_rrtmgp
   
   contains
   
     !---------------------------------------------------------------------
     ! Setup the IFS implementation of RRTMGP gas absorption model
-    subroutine setup_gas_optics_rrtmgp(config, directory)
+    subroutine setup_gas_optics_ifs_rrtmgp(config, directory)
   
       use radiation_config
       use yomhook,   only : lhook, dr_hook
@@ -36,26 +36,7 @@ module radiation_ifs_rrtmgp
       character(len=*), intent(in)     :: directory
   
       integer :: irep ! For implied do
-  
-      ! integer, parameter :: RRTM_GPOINT_REORDERING_LW(140) = (/ &
-      !       &   89, 90, 139, 77, 137, 69, 131, 97, 91, 70, 78, 71, 53, 72, 123, 54, 79, 98,  &
-      !       &   92, 55, 80, 132, 124, 81, 73, 56, 99, 82, 57, 23, 125, 100, 24, 74, 93, 58, 25,  &
-      !       &   83, 126, 75, 26, 11, 101, 133, 59, 27, 76, 140, 12, 84, 102, 94, 28, 127, 85,  &
-      !       &   13, 39, 60, 86, 103, 87, 109, 14, 29, 115, 40, 95, 15, 61, 88, 41, 110, 104, 1,  &
-      !       &   116, 42, 30, 134, 128, 138, 96, 62, 16, 43, 117, 63, 111, 44, 2, 64, 31, 65,  &
-      !       &   105, 17, 45, 66, 118, 32, 3, 33, 67, 18, 129, 135, 46, 112, 34, 106, 68, 35, 4,  &
-      !       &   119, 36, 47, 107, 19, 37, 38, 113, 48, 130, 5, 120, 49, 108, 20, 50, 51, 114,  &
-      !       &   21, 121, 52, 136, 122, 6, 22, 7, 8, 9, 10 &
-      !       & /)
-      ! integer, parameter :: RRTM_GPOINT_REORDERING_SW(112) = (/ &
-      !       &   35, 45, 19, 27, 36, 57, 20, 46, 58, 21, 28, 67, 55, 68, 37, 1, 69, 22, 29, 59,  &
-      !       &   78, 101, 79, 77, 70, 76, 47, 75, 30, 81, 60, 102, 80, 82, 23, 2, 83, 84, 85,  &
-      !       &   86, 103, 61, 31, 87, 56, 38, 71, 48, 88, 3, 62, 89, 24, 7, 49, 32, 104, 72, 90,  &
-      !       &   63, 39, 4, 8, 50, 91, 64, 40, 33, 25, 51, 95, 96, 73, 65, 9, 41, 97, 92, 105,  &
-      !       &   52, 5, 98, 10, 42, 99, 100, 66, 11, 74, 34, 53, 26, 6, 106, 12, 43, 13, 54, 93,  &
-      !       &   44, 107, 94, 14, 108, 15, 16, 109, 17, 18, 110, 111, 112 &
-      !       & /)
-      
+
       real(jprb) :: hook_handle
 
       type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
@@ -68,7 +49,7 @@ module radiation_ifs_rrtmgp
       ! up now.
 
 
-    end subroutine setup_gas_optics_rrtmgp
+    end subroutine setup_gas_optics_ifs_rrtmgp
   
   
     !---------------------------------------------------------------------
@@ -86,7 +67,7 @@ module radiation_ifs_rrtmgp
     !---------------------------------------------------------------------
     ! Compute gas optical depths, shortwave scattering, Planck function
     ! and incoming shortwave radiation at top-of-atmosphere
-    subroutine gas_optics_rrtmgp(ncol,nlev, &
+    subroutine gas_optics_ifs_rrtmgp(ncol,nlev, &
          &  config, single_level, thermodynamics, gas, & 
          &  od_lw, od_sw, ssa_sw, lw_albedo, planck_hl, lw_emission, &
          &  incoming_sw)
@@ -98,6 +79,8 @@ module radiation_ifs_rrtmgp
       use radiation_thermodynamics, only : thermodynamics_type
       use radiation_single_level,   only : single_level_type
       use radiation_gas
+      use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
+
   
       integer, intent(in) :: ncol               ! number of columns
       integer, intent(in) :: nlev               ! number of model levels
@@ -139,224 +122,10 @@ module radiation_ifs_rrtmgp
   
       real(jprb) :: hook_handle
   
-  
-    !   if (lhook) call dr_hook('radiation_ifs_rrtm:gas_optics',0,hook_handle)
-  
-      ! Compute start and end levels for indexing the gas mixing ratio
-      ! and thermodynamics arrays
-    !   iendlev   = ubound(gas%mixing_ratio,2)
-    !   istartlev = iendlev - nlev + 1
-  
-  
-  !    if (.not. associated(YRDIMV)) then
-  !      allocate(YRDIMV)
-  !      YRDIMV%NFLEVG = nlev
-  !    end if
-  
-    !   pressure_fl(ncol,:) &
-    !        &  = 0.5_jprb * (thermodynamics%pressure_hl(ncol,istartlev:iendlev) &
-    !        &               +thermodynamics%pressure_hl(ncol,istartlev+1:iendlev+1))
-    !   temperature_fl(ncol,:) &
-    !        &  = 0.5_jprb * (thermodynamics%temperature_hl(ncol,istartlev:iendlev) &
-    !        &               +thermodynamics%temperature_hl(ncol,istartlev+1:iendlev+1))
-      
-      ! Check we have gas mixing ratios in the right units
-    !   call gas%assert_units(IMassMixingRatio)
-  
-      ! Warning: O2 is hard-coded within the following function so the
-      ! user-provided concentrations of this gas are ignored for both
-      ! the longwave and shortwave
-    !   CALL RRTM_PREPARE_GASES &
-    !        & ( istartcol, iendcol, ncol, nlev, &
-    !        &   thermodynamics%pressure_hl(:,istartlev:iendlev+1), &
-    !        &   pressure_fl, &
-    !        &   thermodynamics%temperature_hl(:,istartlev:iendlev+1), &
-    !        &   temperature_fl, &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,IH2O), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,ICO2), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,ICH4), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,IN2O), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,INO2), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,ICFC11), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,ICFC12), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,IHCFC22), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,ICCl4), &
-    !        &   gas%mixing_ratio(:,istartlev:iendlev,IO3), &
-    !        &  ZCOLDRY, ZWBRODL,ZWKL, ZWX, &
-    !        &  ZPAVEL , ZTAVEL , ZPZ , ZTZ, IREFLECT)  
-  
-    !   CALL RRTM_SETCOEF_140GP &
-    !        &( istartcol, iendcol, nlev , ZCOLDRY  , ZWBRODL , ZWKL , &
-    !        &  ZFAC00 , ZFAC01   , ZFAC10 , ZFAC11 , ZFORFAC,ZFORFRAC,INDFOR, JP, JT, JT1 , &
-    !        &  ZCOLH2O, ZCOLCO2  , ZCOLO3 , ZCOLN2O, ZCOLCH4, ZCOLO2,ZCO2MULT , ZCOLBRD, & 
-    !        &  ILAYTROP,ILAYSWTCH, ILAYLOW, ZPAVEL , ZTAVEL , ZSELFFAC, ZSELFFRAC, INDSELF, &
-    !        &  INDMINOR,ZSCALEMINOR,ZSCALEMINORN2,ZMINORFRAC,&
-    !        &  ZRAT_H2OCO2, ZRAT_H2OCO2_1, ZRAT_H2OO3, ZRAT_H2OO3_1, &
-    !        &  ZRAT_H2ON2O, ZRAT_H2ON2O_1, ZRAT_H2OCH4, ZRAT_H2OCH4_1, &
-    !        &  ZRAT_N2OCO2, ZRAT_N2OCO2_1, ZRAT_O3CO2, ZRAT_O3CO2_1)   
-  
-    !   ZTAUAERL = 0.0_jprb
-  
-    !   CALL RRTM_GAS_OPTICAL_DEPTH &
-    !        &( istartcol, iendcol, nlev, ZOD_LW, ZPAVEL, ZCOLDRY, ZCOLBRD, ZWX ,&
-    !        &  ZTAUAERL, ZFAC00 , ZFAC01, ZFAC10 , ZFAC11 , ZFORFAC,ZFORFRAC,INDFOR, &
-    !        &  JP, JT, JT1, ZONEMINUS ,&
-    !        &  ZCOLH2O , ZCOLCO2, ZCOLO3, ZCOLN2O, ZCOLCH4, ZCOLO2,ZCO2MULT ,&
-    !        &  ILAYTROP, ILAYSWTCH,ILAYLOW, ZSELFFAC, ZSELFFRAC, INDSELF, ZPFRAC, &
-    !        &  INDMINOR,ZSCALEMINOR,ZSCALEMINORN2,ZMINORFRAC,&
-    !        &  ZRAT_H2OCO2, ZRAT_H2OCO2_1, ZRAT_H2OO3, ZRAT_H2OO3_1, &
-    !        &  ZRAT_H2ON2O, ZRAT_H2ON2O_1, ZRAT_H2OCH4, ZRAT_H2OCH4_1, &
-    !        &  ZRAT_N2OCO2, ZRAT_N2OCO2_1, ZRAT_O3CO2, ZRAT_O3CO2_1)      
-  
-!       if (present(lw_albedo)) then
-      
-!         call planck_function_atmos(nlev, istartcol, iendcol, config, &
-!              &                     thermodynamics, ZPFRAC, planck_hl)
-  
-!         if (single_level%is_simple_surface) then
-!           call planck_function_surf(istartcol, iendcol, config, &
-!                &                    single_level%skin_temperature, ZPFRAC(:,:,1), &
-!                &                    lw_emission)
-          
-!           ! The following can be used to extract the parameters defined at
-!           ! the top of the planck_function routine below:
-!           !write(*,'(a,140(e12.5,","),a)') 'ZPFRAC_surf=[', &
-!           !&  sum(ZPFRAC(istartcol:iendcol,:,1),1) / (iendcol+1-istartcol), ']'
-          
-!           ! lw_emission at this point is actually the planck function of
-!           ! the surface
-!           lw_emission = lw_emission * (1.0_jprb - lw_albedo)
-!         else
-!         ! Longwave emission has already been computed
-!           if (config%use_canopy_full_spectrum_lw) then
-!             lw_emission = transpose(single_level%lw_emission(istartcol:iendcol,:))
-!           else
-!             lw_emission = transpose(single_level%lw_emission(istartcol:iendcol, &
-!                  & config%i_emiss_from_band_lw(config%i_band_from_reordered_g_lw)))
-!           end if
-!         end if
-  
-!       end if
-  
-!       if (config%i_solver_lw == ISolverSpartacus) then
-!         !    if (.true.) then
-!         ! We need to rearrange the gas optics info in memory: reordering
-!         ! the g points in order of approximately increasing optical
-!         ! depth (for efficient 3D processing on only the regions of the
-!         ! spectrum that are optically thin for gases) and reorder in
-!         ! pressure since the the functions above treat pressure
-!         ! decreasing with increasing index.  Note that the output gas
-!         ! arrays have dimensions in a different order to the inputs,
-!         ! so there is some inefficiency here.
-!         do jgreorder = 1,config%n_g_lw
-!           iband = config%i_band_from_reordered_g_lw(jgreorder)
-!           ig = config%i_g_from_reordered_g_lw(jgreorder)
-          
-!           ! Top-of-atmosphere half level
-!           do jlev = 1,nlev
-!             do jcol = istartcol,iendcol
-!               ! Some g points can return negative optical depths;
-!               ! specifically original g points 54-56 which causes
-!               ! unphysical single-scattering albedo when combined with
-!               ! aerosol
-!               od_lw(jgreorder,jlev,jcol) &
-!                    &   = max(config%min_gas_od_lw, ZOD_LW(ig,nlev+1-jlev,jcol))
-!             end do
-!           end do
-!         end do
-!       else
-!         ! G points have not been reordered 
-!         do jcol = istartcol,iendcol
-!           do jlev = 1,nlev
-!             ! Check for negative optical depth
-!             od_lw(:,jlev,jcol) = max(config%min_gas_od_lw, ZOD_LW(:,nlev+1-jlev,jcol))
-!           end do
-!         end do
-!       end if
-      
-!       CALL SRTM_SETCOEF &
-!            & ( istartcol, iendcol, nlev,&
-!            & ZPAVEL  , ZTAVEL,&
-!            & ZCOLDRY , ZWKL,&
-!            & ILAYTROP,&
-!            & ZCOLCH4  , ZCOLCO2 , ZCOLH2O , ZCOLMOL  , ZCOLO2 , ZCOLO3,&
-!            & ZFORFAC , ZFORFRAC , INDFOR  , ZSELFFAC, ZSELFFRAC, INDSELF, &
-!            & ZFAC00  , ZFAC01   , ZFAC10  , ZFAC11,&
-!            & JP      , JT       , JT1     , single_level%cos_sza(istartcol:iendcol)  &
-!            & )  
-      
-!       ! SRTM_GAS_OPTICAL_DEPTH will not initialize profiles when the sun
-!       ! is below the horizon, so we do it here
-!       ZOD_SW(istartcol:iendcol,:,:)  = 0.0_jprb
-!       ZSSA_SW(istartcol:iendcol,:,:) = 0.0_jprb
-!       ZINCSOL(istartcol:iendcol,:)   = 0.0_jprb
-  
-!       CALL SRTM_GAS_OPTICAL_DEPTH &
-!            &( istartcol, iendcol , nlev  , ZONEMINUS_ARRAY,&
-!            & single_level%cos_sza(istartcol:iendcol), ILAYTROP,&
-!            & ZCOLCH4 , ZCOLCO2  , ZCOLH2O, ZCOLMOL , ZCOLO2   , ZCOLO3,&
-!            & ZFORFAC , ZFORFRAC , INDFOR , ZSELFFAC, ZSELFFRAC, INDSELF,&
-!            & ZFAC00  , ZFAC01   , ZFAC10 , ZFAC11  ,&
-!            & JP      , JT       , JT1    ,&
-!            & ZOD_SW  , ZSSA_SW  , ZINCSOL )
-      
-!       ! Scale the incoming solar per band, if requested
-!       if (config%use_spectral_solar_scaling) then
-!         ZINCSOL(istartcol:iendcol,:) = ZINCSOL(istartcol:iendcol,:) &
-!            & * spread(single_level%spectral_solar_scaling(config%i_band_from_reordered_g_sw), &
-!            &                                              1,iendcol-istartcol+1)
-!       end if
-  
-!       ! Scaling factor to ensure that the total solar irradiance is as
-!       ! requested.  Note that if the sun is below the horizon then
-!       ! ZINCSOL will be zero.
-!       if (present(incoming_sw)) then
-!         incoming_sw_scale = 1.0_jprb
-!         do jcol = istartcol,iendcol
-!           if (single_level%cos_sza(jcol) > 0.0_jprb) then
-!             incoming_sw_scale(jcol) = single_level%solar_irradiance / sum(ZINCSOL(jcol,:))
-!           end if
-!         end do
-!       end if
-  
-!       if (config%i_solver_sw == ISolverSpartacus) then
-!   !    if (.true.) then
-!         ! Account for reordered g points
-!         do jgreorder = 1,config%n_g_sw
-!           ig = config%i_g_from_reordered_g_sw(jgreorder)
-!           do jlev = 1,nlev
-!             do jcol = istartcol,iendcol
-!               ! Check for negative optical depth
-!               od_sw (jgreorder,nlev+1-jlev,jcol) &
-!                    &  = max(config%min_gas_od_sw, ZOD_SW (jcol,jlev,ig))
-!               ssa_sw(jgreorder,nlev+1-jlev,jcol) = ZSSA_SW(jcol,jlev,ig)
-!              end do
-!           end do
-!           if (present(incoming_sw)) then
-!             incoming_sw(jgreorder,:) &
-!                  &  = incoming_sw_scale(:) * ZINCSOL(:,ig)
-!           end if
-!         end do
-!       else
-!         ! G points have not been reordered
-!         do jg = 1,config%n_g_sw
-!           do jlev = 1,nlev
-!             do jcol = istartcol,iendcol
-!               ! Check for negative optical depth
-!               od_sw (jg,nlev+1-jlev,jcol) = max(config%min_gas_od_sw, ZOD_SW(jcol,jlev,jg))
-!               ssa_sw(jg,nlev+1-jlev,jcol) = ZSSA_SW(jcol,jlev,jg)
-!             end do
-!           end do
-!           if (present(incoming_sw)) then
-!             incoming_sw(jg,:) &
-!                  &  = incoming_sw_scale(:) * ZINCSOL(:,jg)
-!           end if
-!         end do
-!       end if
       
       if (lhook) call dr_hook('radiation_ifs_rrtm:gas_optics',1,hook_handle)
       
-    end subroutine gas_optics_rrtmgp
+    end subroutine gas_optics_ifs_rrtmgp
     
   
     !---------------------------------------------------------------------

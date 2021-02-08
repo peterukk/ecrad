@@ -136,9 +136,9 @@ help:
 	@echo "  clean                Remove all compiled files"
 
 ifdef DR_HOOK
-build: directories librrtmgp libifsaux libdrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
+build: directories libifsaux librrtmgp libdrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
 else
-build: directories librrtmgp libifsaux libdummydrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
+build: directories libifsaux librrtmgp libdummydrhook libutilities libifsrrtm libradiation libradsurf driver symlinks
 endif
 
 # git cannot store empty directories so they may need to be created 
@@ -155,11 +155,11 @@ deps: clean-deps
 clean-deps:
 	rm -f include/*.intfb.h
 
-librrtmgp:
-	cd rte-rrtmgp-nn && $(MAKE)
-
 libifsaux:
 	cd ifsaux && $(MAKE)
+
+librrtmgp:
+	cd rte-rrtmgp-nn && $(MAKE)
 
 libdrhook:
 	cd drhook && $(MAKE)
