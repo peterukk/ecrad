@@ -227,8 +227,8 @@ program ecrad_driver
 
   ! Read input variables from NetCDF file
 #ifdef USE_TIMING
-
   ret =  gptlstart('read_inputs')
+#endif
 
 #ifdef BLOCK_DERIVED_TYPES
   call read_input_blocked(file, config, driver_config, nblock, ncol, nlev, &
@@ -245,9 +245,10 @@ program ecrad_driver
     config%do_canopy_fluxes_lw = .true.
   end if
 
+#ifdef USE_TIMING
   ret =  gptlstop('read_inputs')
-
 #endif
+
   ! Close input file
   call file%close()
 

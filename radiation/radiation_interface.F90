@@ -327,6 +327,11 @@ contains
            &                        sw_albedo_direct, sw_albedo_diffuse, &
            &                        lw_albedo)
 
+
+      if (config%i_gas_model ==  IGasModelRRTMGP) then
+
+      end if
+
       ! Compute gas absorption optical depth in shortwave and
       ! longwave, shortwave single scattering albedo (i.e. fraction of
       ! extinction due to Rayleigh scattering), Planck functions and
@@ -346,12 +351,14 @@ contains
              &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
              &  planck_hl=planck_hl, lw_emission=lw_emission, &
              &  incoming_sw=incoming_sw)
-      else 
+      else if (config%i_gas_model ==  IGasModelRRTMGP) then
         call gas_optics_ifs_rrtmgp(iendcol-istartcol+1,nlev, config, &
         &  single_level, thermodynamics, gas, &
         &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
         &  planck_hl=planck_hl, lw_emission=lw_emission, &
         &  incoming_sw=incoming_sw)
+      else 
+        
       end if
 #ifdef USE_TIMING
     ret =  gptlstop('gas_optics')
