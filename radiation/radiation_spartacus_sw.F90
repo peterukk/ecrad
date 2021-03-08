@@ -122,7 +122,7 @@ contains
          &  albedo_direct, albedo_diffuse, incoming_sw
 
     ! Output
-    type(flux_type), intent(inout):: flux
+    type(flux_type), intent(inout):: flux ! (istartcol:iendcol, nlev)
 
     integer :: nreg, ng
     integer :: nregactive ! =1 in clear layer, =nreg in a cloudy layer
@@ -290,11 +290,11 @@ contains
 
     ! Keep a count of the number of calls to the two ways of computing
     ! reflectance/transmittance matrices
-    integer :: n_calls_expm, n_calls_meador_weaver
+    integer :: n_calls_expm, n_calls_meador_weaver, n_irregular_ng3d
 
     ! Identify clear-sky layers, with pseudo layers for outer space
     ! and below the ground, both treated as single-region clear skies
-    logical :: is_clear_sky_layer(0:nlev+1)
+    logical :: is_clear_sky_layer(0:nlev+1),  reset
 
     ! Used in computing rates of lateral radiation transfer
     real(jprb), parameter :: four_over_pi = 4.0_jprb / Pi
@@ -312,6 +312,7 @@ contains
     
     !print *, "SHAPE gamma", shape(Gamma_z1)
     !           112           9           9
+!     n_irregular_ng3d = 0
 
     ! Copy array dimensions to local variables for convenience
     nreg = config%nregions
@@ -344,13 +345,18 @@ contains
     ! Main loop over columns
     do jcol = istartcol, iendcol
 
+#ifdef USE_TIMING
+     ret =  gptlstart('calc_overlap_matrices_nocol')
+#endif 
      call calc_overlap_matrices_nocol(nlev,nreg, &
      &  region_fracs(:,:,jcol), cloud%overlap_param(jcol,:), &
      &  u_matrix, v_matrix, decorrelation_scaling=config%cloud_inhom_decorr_scaling, &
      &  cloud_fraction_threshold=config%cloud_fraction_threshold, &
      &  use_beta_overlap=config%use_beta_overlap, &
      &  cloud_cover=flux%cloud_cover_sw(jcol))
-
+#ifdef USE_TIMING
+     ret =  gptlstop('calc_overlap_matrices_nocol')
+#endif 
       ! --------------------------------------------------------
       ! Section 2: Prepare column-specific variables and arrays
       ! --------------------------------------------------------
@@ -503,7 +509,8 @@ contains
 
       !do jlev = 1,nlev ! Start at top-of-atmosphere
       do jlev = nlev,1,-1 ! Start at the surface. This allows section 3 and section 4 computations
-                          ! to be inside the same loop (loop order does not matter for section 3)
+                          ! to be inside the same loop (loop order does not matter for section 3, 
+                          ! where computations are independent of layer)
 #ifdef USE_TIMING
      ret =  gptlstart('section_3')
 #endif  
@@ -564,10 +571,14 @@ contains
                 exit
               end if
             end do
+          !   print *, "ng3D 1", ng3D
           else
             ! Otherwise treat cloud-free layer using the classical
             ! Meador & Weaver formulae for all g-points
             ng3D = 0
+
+          !   print *, "ng3D 1.2", ng3D
+
           end if
 
 
@@ -591,6 +602,9 @@ contains
               ! inv_cloud_effective_size is defined and greater
               ! than zero
               ng3D = ng
+
+          !     print *, "ng3D 2", ng3D
+
 
               ! Depth of current layer
               dz = layer_depth(jlev)
@@ -657,7 +671,6 @@ contains
           ! Compute scattering properties of the regions at each
           ! g-point, mapping from the cloud properties
           ! defined in each band.
-
           do jg = 1,ng
             ! Mapping from g-point to band
             iband = config%i_band_from_reordered_g_sw(jg)
@@ -702,6 +715,7 @@ contains
                  &  .and. od_region(jg,1) > config%max_gas_od_3D) then
               ng3D = jg-1
             end if
+
           end do ! Loop over g points
 
           do jreg = 1,nreg
@@ -716,13 +730,18 @@ contains
         ! --------------------------------------------------------
         ! Section 3.3: Compute reflection, transmission and emission
         ! --------------------------------------------------------
-#ifdef USE_TIMING
-     ret =  gptlstart('section_3_3_refl_trans_emis')
-#endif 
+! #ifdef USE_TIMING
+!      ret =  gptlstart('section_3_3_refl_trans_emis')
+! #endif 
+     !    print *,  "ilev", jlev, "ng3D:", ng3D, "/", ng
         if (ng3D > 0) then
- 
+#ifdef USE_TIMING
+     ret =  gptlstart('create_gamma')
+#endif 
           allocate(Gamma_z1(ng3D,3*nreg,3*nreg))
           Gamma_z1= 0.0_jprb
+
+          ! if ((ng3D > 0) .and. (ng3D < ng)) n_irregular_ng3d = n_irregular_ng3d + 1
 
           ! --- Section 3.3a: g-points with 3D effects ----------
 
@@ -800,7 +819,9 @@ contains
           ! Copy Gamma2*z1
           Gamma_z1(:,1:nregactive,nreg+1:nreg+nregactive) &
                &  = -Gamma_z1(:,nreg+1:nreg+nregactive,1:nregactive)
-
+#ifdef USE_TIMING
+     ret =  gptlstop('create_gamma')
+#endif 
           ! Compute the matrix exponential of Gamma_z1, returning the
           ! result in-place
 #ifdef USE_TIMING
@@ -867,9 +888,9 @@ contains
 
         ! Compute reflectance, transmittance and associated terms for
         ! clear skies, using the Meador-Weaver formulas
-#ifdef USE_TIMING
-    ret =  gptlstart('reflectance_transmittance_sw_1')
-#endif 
+! #ifdef USE_TIMING
+!     ret =  gptlstart('reflectance_transmittance_sw')
+! #endif 
        call calc_reflectance_transmittance_sw(ng, &
              &  mu0, od_region(:,1), ssa_region(:,1), &
              &  gamma1(:,1), gamma2(:,1), gamma3(:,1), &
@@ -877,13 +898,7 @@ contains
              &  ref_dir_clear(:,jlev), trans_dir_diff_clear(:,jlev), &
              &  trans_dir_dir_clear(:,jlev) )
 
-#ifdef USE_TIMING
-    ret =  gptlstop('reflectance_transmittance_sw_1')
-#endif 
         n_calls_meador_weaver = n_calls_meador_weaver + ng
-#ifdef USE_TIMING
-    ret =  gptlstart('array_copy_sw_two_stream')
-#endif 
         if (ng3D < ng) then
           ! Some of the g points are to be treated using the
           ! conventional plane-parallel method.  First zero the
@@ -917,12 +932,12 @@ contains
           n_calls_meador_weaver &
                &  = n_calls_meador_weaver + (ng-ng3D)*(nregactive-1)
         end if
-#ifdef USE_TIMING
-    ret =  gptlstop('array_copy_sw_two_stream')
-#endif 
-#ifdef USE_TIMING
-     ret =  gptlstop('section_3_3_refl_trans_emis')
-#endif 
+! #ifdef USE_TIMING
+!     ret =  gptlstop('reflectance_transmittance_sw')
+! #endif 
+! #ifdef USE_TIMING
+!      ret =  gptlstop('section_3_3_refl_trans_emis')
+! #endif 
      !  end do ! Loop over levels
 #ifdef USE_TIMING
      ret =  gptlstop('section_3')
@@ -970,9 +985,9 @@ contains
         ! --------------------------------------------------------
         ! Section 4.1: Adding method
         ! --------------------------------------------------------
-#ifdef USE_TIMING
-     ret =  gptlstart('section_4_1-adding')
-#endif 
+! #ifdef USE_TIMING
+!      ret =  gptlstart('section_4_1-adding')
+! #endif 
         if (config%do_clear) then
           ! Use adding method for clear-sky arrays; note that there
           ! is no need to consider "above" and "below" quantities
@@ -988,7 +1003,7 @@ contains
                &    +trans_dir_diff_clear(:,jlev) * total_albedo_clear(:,jlev+1)) &
                &  * trans_clear(:,jlev) * inv_denom_scalar(:)
         end if
-
+ 
         if (is_clear_sky_layer(jlev)) then
           ! Clear-sky layer: use scalar adding method
           inv_denom_scalar(:) = 1.0_jprb &
@@ -1025,10 +1040,10 @@ contains
      ret =  gptlstop('section_4_1-adding_cloudy')
 #endif 
         end if
-#ifdef USE_TIMING
-     ret =  gptlstop('section_4_1-adding')
-     ret =  gptlstart('section_4_2-overlap_entrapment')
-#endif 
+! #ifdef USE_TIMING
+!      ret =  gptlstop('section_4_1-adding')
+!      ret =  gptlstart('section_4_2-overlap_entrapment')
+! #endif 
         ! --------------------------------------------------------
         ! Section 4.2: Overlap and entrapment
         ! --------------------------------------------------------
@@ -1242,9 +1257,7 @@ contains
                        &  * edge_length(3,jlev-1) / max(u_matrix(3,jreg2,jlev),1.0e-5_jprb)
                 end if
               end if
-#ifdef USE_TIMING
-     ret =  gptlstart('entrapment_1')
-#endif 
+
               ! Compute matrix of exchange coefficients
               entrapment = 0.0_jprb
               inv_effective_size = min(cloud%inv_cloud_effective_size(jcol,jlev-1), &
@@ -1276,9 +1289,7 @@ contains
                 entrapment(:,jreg+1,jreg+1) = entrapment(:,jreg+1,jreg+1) &
                      &  - entrapment(:,jreg,jreg+1)
               end do
-#ifdef USE_TIMING
-     ret =  gptlstop('entrapment_1')
-#endif 
+
               ! If rate of exchange is excessive the expm can throw a
               ! floating point exception, even if it tends towards a
               ! trival limit, so we cap the maximum input to expm by
@@ -1291,6 +1302,7 @@ contains
                   entrapment(jg,:,:) = entrapment(jg,:,:) * (config%max_cloud_od/max_entr)
                 end if
               end do
+
 
           !     print *, "entr", minval(entrapment)
 
@@ -1355,7 +1367,6 @@ contains
                 end do
               end do
 #endif
-
               ! Increment diffuse albedo
               total_albedo(:,:,:,jlev) = total_albedo(:,:,:,jlev) + albedo_part
 
@@ -1491,7 +1502,7 @@ contains
         end if
 
 #ifdef USE_TIMING
-     ret =  gptlstop('section_4_2-overlap_entrapment')
+     ! ret =  gptlstop('section_4_2-overlap_entrapment')
      ret =  gptlstop('section_4')
 
 #endif     
@@ -1679,9 +1690,6 @@ contains
         end if
 
         ! Store the broadband fluxes
-#ifdef USE_TIMING
-     ret =  gptlstart('section_5_compute_broadband_flux')
-#endif 
         flux%sw_up(jcol,jlev+1) = sum(sum(flux_up_above,1))
         flux%sw_dn(jcol,jlev+1) &
              &  = flux%sw_dn(jcol,jlev+1) + sum(sum(flux_dn_above,1))
@@ -1690,9 +1698,6 @@ contains
           flux%sw_dn_clear(jcol,jlev+1) &
                &  = flux%sw_dn_clear(jcol,jlev+1) + sum(flux_dn_clear)
         end if
-#ifdef USE_TIMING
-     ret =  gptlstop('section_5_compute_broadband_flux')
-#endif 
         ! Save the spectral fluxes if required
         if (config%do_save_spectral_flux) then
           call indexed_sum(sum(flux_up_above,2), &
@@ -1726,6 +1731,8 @@ contains
      ret =  gptlstop('section_5')
 #endif 
     end do ! Loop over columns
+
+!     print *, "NG IRREGULAR:", n_irregular_ng3d
     
     if (config%iverbose >= 3) then
       write(nulout,*)
@@ -1863,5 +1870,23 @@ contains
     end if
 
   end subroutine step_migrations
+
+  function mean3(x3) result(mean)
+    use parkind1,         only : jprb
+    real(jprb), dimension(:,:,:), intent(in) :: x3
+    real(jprb) :: mean
+    
+    mean = sum(sum(sum(x3, dim=1),dim=1),dim=1) / size(x3)
+
+  end function mean3
+
+  function mean1(x1) result(mean)
+     use parkind1,         only : jprb
+     real(jprb), dimension(:), intent(in) :: x1
+     real(jprb) :: mean
+     
+     mean = sum(x1, dim=1) / size(x1)
+ 
+   end function mean1
 
 end module radiation_spartacus_sw

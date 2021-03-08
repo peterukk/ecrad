@@ -24,7 +24,11 @@
 module radiation_two_stream
 
   use parkind1, only : jprb
-
+#ifdef USE_TIMING
+    ! Timing library
+    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
+                                     gptlpercent, gptloverhead
+#endif
   implicit none
   public
 
@@ -47,7 +51,9 @@ module radiation_two_stream
 #else
   real(jprb), parameter :: KMin = 1.e-12_jprb
 #endif
-
+#ifdef USE_TIMING
+    integer :: ret
+#endif
   ! The routines in this module can be called millions of times, so
   !calling Dr Hook for each one may be a significant overhead.
   !Uncomment the following to turn Dr Hook on.
@@ -144,6 +150,9 @@ contains
     if (lhook) call dr_hook('radiation_two_stream:calc_two_stream_gammas_sw',0,hook_handle)
 #endif
 
+! #ifdef USE_TIMING
+!      ret =  gptlstart('calc_two_stream_gammas_sw')
+! #endif 
     ! Zdunkowski "PIFM" (Zdunkowski et al., 1980; Contributions to
     ! Atmospheric Physics 53, 147-66)
     do jg = 1, ng
@@ -156,7 +165,9 @@ contains
       gamma2(jg) = ssa(jg) * (0.75_jprb - factor)
       gamma3(jg) = 0.5_jprb  - mu0*factor
     end do
-
+! #ifdef USE_TIMING
+!      ret =  gptlstop('calc_two_stream_gammas_sw')
+! #endif 
 #ifdef DO_DR_HOOK_TWO_STREAM
     if (lhook) call dr_hook('radiation_two_stream:calc_two_stream_gammas_sw',1,hook_handle)
 #endif
@@ -216,6 +227,7 @@ contains
 #endif
 
     do jg = 1, ng
+      ! Comment P. Ukkonen: is this conditional needed? removing it did not deteriorate fluxes for IFS test profiles
       if (od(jg) > 1.0e-3_jprb) then
         k_exponent = sqrt(max((gamma1(jg) - gamma2(jg)) * (gamma1(jg) + gamma2(jg)), &
           KMin)) ! Eq 18 of Meador & Weaver (1980)
@@ -249,7 +261,7 @@ contains
         source_dn(jg) = source_up(jg)
       end if
     end do
-    
+
 #ifdef DO_DR_HOOK_TWO_STREAM
     if (lhook) call dr_hook('radiation_two_stream:calc_reflectance_transmittance_lw',1,hook_handle)
 #endif
@@ -407,6 +419,95 @@ contains
 #endif
 
   end subroutine calc_no_scattering_transmittance_lw
+
+  subroutine calc_no_scattering_transmittance_lw_rte(ng, nlev, &
+    &    od, planck_hl, planck_fl, transmittance, source_up, source_dn)
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ use yomhook, only : lhook, dr_hook
+#endif
+
+    integer, intent(in) :: ng, nlev
+
+    ! Optical depth and single scattering albedo
+    real(jprb), intent(in), dimension(ng,nlev) :: od
+
+    ! The Planck terms (functions of temperature) at half levels and full levels
+    real(jprb), intent(in), dimension(ng,nlev+1)  :: planck_hl
+    real(jprb), intent(in), dimension(ng,nlev)    :: planck_fl
+
+    ! The diffuse transmittance, i.e. the fraction of diffuse
+    ! radiation incident on a layer from either top or bottom that is
+    ! reflected back or transmitted through
+    real(jprb), intent(out), dimension(ng,nlev) :: transmittance
+
+    ! The upward emission at the top of the layer and the downward
+    ! emission at its base, due to emission from within the layer
+    real(jprb), intent(out), dimension(ng,nlev) :: source_up, source_dn
+
+    ! real(jprb) :: coeff, coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot, planck_mean
+    real(jprb) :: coeff_up_top, coeff_up_bot, coeff_dn_top, coeff_dn_bot, coeff
+    ! real(jprb), dimension(ng,nlev) :: od_loc
+    ! real(jprb), dimension(ng) :: coeff, planck_mean
+    integer :: jg, jlev
+
+    real(jprb), parameter             :: od_thresh = sqrt(epsilon(od))
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+    real(jprb) :: hook_handle
+    if (lhook) call dr_hook('radiation_two_stream:calc_no_scattering_transmittance_lw_rte',0,hook_handle)
+#endif
+
+    ! do jlev = 1, nlev
+    !   od_loc(:,jlev) = LwDiffusivity*od(:,jlev)
+    !   transmittance(:,jlev) = exp_fast(-od_loc(:,jlev))
+    ! end do
+    ! do jlev = 1, nlev
+    !   !dir$ vector aligned
+    !   do jg = 1, ng
+        !
+        ! Weighting factor. Use 2nd order series expansion when rounding error (~tau^2)
+        !   is of order epsilon (smallest difference from 1. in working precision)
+        !   Thanks to Peter Blossey
+        ! !
+        ! if(od_loc(jg, jlev) > od_thresh) then
+        !   coeff = (1._jprb - transmittance(jg,jlev))/od_loc(jg,jlev) - transmittance(jg,jlev)
+        ! else
+        !   coeff = od_loc(jg, jlev) * (0.5_jprb - 1._jprb/3._jprb*od_loc(jg, jlev))
+        ! end if
+        
+        ! ! Equation below is developed in Clough et al., 1992, doi:10.1029/92JD01419, Eq 13
+        ! source_dn(jg,jlev) = (1._jprb - transmittance(jg,jlev)) * planck_hl(jg,jlev+1) + &
+        !                       2._jprb * coeff * (planck_fl(jg,jlev) - planck_hl(jg,jlev+1))
+        ! source_up(jg,jlev) = (1._jprb - transmittance(jg,jlev)) * planck_hl(jg,jlev) + &
+        !                       2._jprb * coeff * (planck_fl(jg,jlev) - planck_hl(jg,jlev))  
+    !   end do 
+    ! end do 
+
+    do jlev = 1, nlev
+      !dir$ vector aligned
+      do jg = 1, ng
+        ! Alternative source computation using a Pade approximant for the linear-in-tau solution
+        ! This method requires no conditional
+        ! See Clough et al., 1992, doi:10.1029/92JD01419, Eq 15
+        coeff = LwDiffusivity*od(jg,jlev)
+        transmittance(jg,jlev) = exp_fast(-coeff)
+        coeff = 0.2_jprb * coeff
+        source_up(jg,jlev)  = (1.0_jprb-transmittance(jg,jlev)) * (planck_fl(jg,jlev) + coeff*planck_hl(jg,jlev))   / (1 + coeff)
+        source_dn(jg,jlev)  = (1.0_jprb-transmittance(jg,jlev)) * (planck_fl(jg,jlev) + coeff*planck_hl(jg,jlev+1)) / (1 + coeff)
+
+        ! coeff = 0.2_jprb * coeff
+        ! planck_mean = 0.5_jprb * (planck_top(:,jlev) + planck_bot(:,jlev))
+        ! source_up(:,jlev) = (1.0_jprb-transmittance(:,jlev)) * (planck_mean + coeff*planck_top(:,jlev)) / (1 + coeff)
+        ! source_dn(:,jlev) = (1.0_jprb-transmittance(:,jlev)) * (planck_mean + coeff*planck_bot(:,jlev)) / (1 + coeff)                     
+      end do 
+    end do 
+
+#ifdef DO_DR_HOOK_TWO_STREAM
+ if (lhook) call dr_hook('radiation_two_stream:calc_no_scattering_transmittance_lw_pade',1,hook_handle)
+#endif
+
+end subroutine calc_no_scattering_transmittance_lw_rte
    
    
   !---------------------------------------------------------------------
@@ -453,12 +554,11 @@ contains
     real(jprb), intent(out), dimension(ng) :: trans_dir_dir
 
 #ifdef USE_RTE_REFTRANS_SW
-  !   Use two-stream procedure "sw_two_stream" adapted from RTE (Radiative Transfer for Energetics) 
-  !   code, developed by Robert Pincus: https://github.com/earth-system-radiation/rte-rrtmgp
-  !   Includes some changes by Peter Ukkonen for RTE+RRTMGP-NN: https://github.com/peterukk/rte-rrtmgp-nn
-  !   Uses the same equations as original formulation (#else), but should be faster
+    !   Use two-stream procedure "sw_two_stream" adapted from RTE (Radiative Transfer for Energetics) 
+    !   code, developed by Robert Pincus: https://github.com/earth-system-radiation/rte-rrtmgp
+    !   Includes some changes by Peter Ukkonen for RTE+RRTMGP-NN: https://github.com/peterukk/rte-rrtmgp-nn
+    !   Uses the same equations as original formulation (#else), but should be faster
 
-    ! -----------------------
     integer  :: i, j
 
     ! Variables used in Meador and Weaver
@@ -809,7 +909,6 @@ contains
 
     if (lhook) call dr_hook('radiation_two_stream:calc_frac_scattered_diffuse_sw',0,hook_handle)
 #endif
-
     do jg = 1, ng
       ! Note that if the minimum value is reduced (e.g. to 1.0e-24)
       ! then noise starts to appear as a function of solar zenith
@@ -831,7 +930,7 @@ contains
            &  - min(1.0_jprb,exp_fast(-2.0_jprb*od(jg)) &
            &  / max(1.0e-8_jprb, k_2_exponential * reftrans_factor))
     end do
-    
+
 #ifdef DO_DR_HOOK_TWO_STREAM
     if (lhook) call dr_hook('radiation_two_stream:calc_frac_scattered_diffuse_sw',1,hook_handle)
 #endif

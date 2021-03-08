@@ -50,7 +50,11 @@ contains
          &       cum_cloud_cover_max_ran, cum_cloud_cover_exp_exp, &
          &       IOverlapMaximumRandom, IOverlapExponentialRandom, &
          &       IOverlapExponential
-
+#ifdef USE_TIMING
+    ! Timing library
+    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
+                                     gptlpercent, gptloverhead
+#endif
     implicit none
 
     ! Inputs
@@ -119,7 +123,7 @@ contains
     integer :: itrigger
 
     ! Loop index for model level and g-point
-    integer :: jlev, jg
+    integer :: jlev, jg, ret
 
     ! Cloud cover of a pair of layers, and amount by which cloud at
     ! next level increases total cloud cover as seen from above
@@ -181,11 +185,15 @@ contains
 
       ! Reset optical depth scaling to clear skies
       od_scaling = 0.0_jprb
-
+#ifdef USE_TIMING
+     ret =  gptlstart('init_rnd')
+#endif 
       ! Expensive operation: initialize random number generator for
       ! this column
       call initialize_random_numbers(iseed, random_stream)
-
+#ifdef USE_TIMING
+     ret =  gptlstop('init_rnd')
+#endif 
       ! Compute ng random numbers to use to locate cloud top
       call uniform_distribution(rand_top, random_stream)
 
@@ -199,7 +207,9 @@ contains
           jlev = jlev + 1
         end do
         itrigger = jlev
-
+#ifdef USE_TIMING
+     ret =  gptlstart('gen')
+#endif 
         if (i_overlap_scheme /= IOverlapExponential) then
           call generate_column_exp_ran(ng, nlev, jg, random_stream, pdf_sampler, &
                &  frac, pair_cloud_cover, &
@@ -211,7 +221,9 @@ contains
                &  cum_cloud_cover, overhang, fractional_std, overlap_param_inhom, &
                &  itrigger, iend, od_scaling)
         end if
-        
+#ifdef USE_TIMING
+     ret =  gptlstop('gen')
+#endif 
       end do
 
     end if

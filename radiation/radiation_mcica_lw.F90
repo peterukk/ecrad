@@ -38,7 +38,7 @@ contains
        &  config, single_level, cloud, & 
        &  od, ssa, g, od_cloud, ssa_cloud, g_cloud, planck_hl, &
        &  emission, albedo, &
-       &  flux)
+       &  flux, planck_fl)
 
     use parkind1, only           : jprb
     use yomhook,  only           : lhook, dr_hook
@@ -50,11 +50,17 @@ contains
     use radiation_flux, only           : flux_type
     use radiation_two_stream, only     : calc_two_stream_gammas_lw, &
          &                               calc_reflectance_transmittance_lw, &
-         &                               calc_no_scattering_transmittance_lw
+         &                               calc_no_scattering_transmittance_lw,&
+         &                               calc_no_scattering_transmittance_lw_rte
     use radiation_adding_ica_lw, only  : adding_ica_lw, fast_adding_ica_lw, &
          &                               calc_fluxes_no_scattering_lw
     use radiation_lw_derivatives, only : calc_lw_derivatives_ica, modify_lw_derivatives_ica
     use radiation_cloud_generator, only: cloud_generator
+#ifdef USE_TIMING
+    ! Timing library
+    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
+                                     gptlpercent, gptloverhead
+#endif
 
     implicit none
 
@@ -82,6 +88,9 @@ contains
     ! Planck function at each half-level and the surface
     real(jprb), intent(in), dimension(config%n_g_lw,nlev+1,istartcol:iendcol) :: &
          &  planck_hl
+    ! Planck function at each full level
+    real(jprb), intent(in), optional, dimension(config%n_g_lw,nlev,istartcol:iendcol) :: &
+         &  planck_fl
 
     ! Emission (Planck*emissivity) and albedo (1-emissivity) at the
     ! surface at each longwave g-point
@@ -135,7 +144,7 @@ contains
     integer :: ng
 
     ! Loop indices for level, column and g point
-    integer :: jlev, jcol, jg
+    integer :: jlev, jcol, jg, ret
 
     real(jprb) :: hook_handle
 
@@ -150,53 +159,90 @@ contains
 
     ! Loop through columns
     do jcol = istartcol,iendcol
-
+#ifdef USE_TIMING
+     ret =  gptlstart('clear-sky')
+#endif  
       ! Clear-sky calculation
       if (config%do_lw_aerosol_scattering) then
         ! Scattering case: first compute clear-sky reflectance,
         ! transmittance etc at each model level
+#ifdef USE_TIMING
+     ret =  gptlstart('aerosol_clear_sky')
+#endif 
         do jlev = 1,nlev
-          ssa_total = ssa(:,jlev,jcol)
-          g_total   = g(:,jlev,jcol)
-          call calc_two_stream_gammas_lw(ng, ssa_total, g_total, &
+ 
+          call calc_two_stream_gammas_lw(ng, ssa(:,jlev,jcol), g(:,jlev,jcol), &
                &  gamma1, gamma2)
+
           call calc_reflectance_transmittance_lw(ng, &
                &  od(:,jlev,jcol), gamma1, gamma2, &
                &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
                &  ref_clear(:,jlev), trans_clear(:,jlev), &
                &  source_up_clear(:,jlev), source_dn_clear(:,jlev))
         end do
+#ifdef USE_TIMING
+     ret =  gptlstop('aerosol_clear_sky')
+#endif 
+#ifdef USE_TIMING
+     ret =  gptlstart('adding_ica_lw')
+#endif 
         ! Then use adding method to compute fluxes
         call adding_ica_lw(ng, nlev, &
              &  ref_clear, trans_clear, source_up_clear, source_dn_clear, &
              &  emission(:,jcol), albedo(:,jcol), &
              &  flux_up_clear, flux_dn_clear)
-        
+#ifdef USE_TIMING
+     ret =  gptlstop('adding_ica_lw')
+#endif 
       else
         ! Non-scattering case: use simpler functions for
         ! transmission and emission
-        do jlev = 1,nlev
-          call calc_no_scattering_transmittance_lw(ng, od(:,jlev,jcol), &
-               &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
-               &  trans_clear(:,jlev), source_up_clear(:,jlev), source_dn_clear(:,jlev))
-        end do
+#ifdef USE_TIMING
+     ret =  gptlstart('calc_no_scattering_transmittance_lw')
+#endif   
+
+       if (present(planck_fl)) then
+          call calc_no_scattering_transmittance_lw_rte(ng, nlev, od(:,:,jcol), &
+               &  planck_hl(:,:,jcol), planck_fl(:,:,jcol), &
+               &  trans_clear, source_up_clear, source_dn_clear)
+       else
+          do jlev = 1,nlev
+           call calc_no_scattering_transmittance_lw(ng, od(:,jlev,jcol), &
+                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
+                    &  trans_clear(:,jlev), source_up_clear(:,jlev), source_dn_clear(:,jlev))
+          end do
+       end if
+#ifdef USE_TIMING
+     ret =  gptlstop('calc_no_scattering_transmittance_lw')
+#endif   
+#ifdef USE_TIMING
+     ret =  gptlstart('calc_fluxes_no_scattering_lw')
+#endif   
         ! Simpler down-then-up method to compute fluxes
         call calc_fluxes_no_scattering_lw(ng, nlev, &
              &  trans_clear, source_up_clear, source_dn_clear, &
              &  emission(:,jcol), albedo(:,jcol), &
              &  flux_up_clear, flux_dn_clear)
-        
+#ifdef USE_TIMING
+     ret =  gptlstop('calc_fluxes_no_scattering_lw')
+#endif   
         ! Ensure that clear-sky reflectance is zero since it may be
         ! used in cloudy-sky case
         ref_clear = 0.0_jprb
       end if
 
+#ifdef USE_TIMING
+     ret =  gptlstop('clear-sky')
+#endif 
       ! Sum over g-points to compute broadband fluxes
       flux%lw_up_clear(jcol,:) = sum(flux_up_clear,1)
       flux%lw_dn_clear(jcol,:) = sum(flux_dn_clear,1)
       ! Store surface spectral downwelling fluxes
       flux%lw_dn_surf_clear_g(:,jcol) = flux_dn_clear(:,nlev+1)
 
+#ifdef USE_TIMING
+     ret =  gptlstart('cloud_gen')
+#endif 
       ! Do cloudy-sky calculation; add a prime number to the seed in
       ! the longwave
       call cloud_generator(ng, nlev, config%i_overlap_scheme, &
@@ -206,7 +252,12 @@ contains
            &  config%cloud_inhom_decorr_scaling, cloud%fractional_std(jcol,:), &
            &  config%pdf_sampler, od_scaling, total_cloud_cover, &
            &  is_beta_overlap=config%use_beta_overlap)
-      
+#ifdef USE_TIMING
+     ret =  gptlstop('cloud_gen')
+#endif 
+#ifdef USE_TIMING
+     ret =  gptlstart('total-sky')
+#endif 
       ! Store total cloud cover
       flux%cloud_cover_lw(jcol) = total_cloud_cover
       
@@ -234,6 +285,9 @@ contains
               ! Scattering case: calculate reflectance and
               ! transmittance at each model level
 
+#ifdef USE_TIMING
+     ret =  gptlstart('tau_zero_conditional')
+#endif 
               if (config%do_lw_aerosol_scattering) then
                 ! In single precision we need to protect against the
                 ! case that od_total > 0.0 and ssa_total > 0.0 but
@@ -265,29 +319,55 @@ contains
                   end if
                 end do
               end if
-            
+#ifdef USE_TIMING
+     ret =  gptlstop('tau_zero_conditional')
+#endif 
               ! Compute cloudy-sky reflectance, transmittance etc at
               ! each model level
+#ifdef USE_TIMING
+     ret =  gptlstart('two_stream_gammas')
+#endif 
               call calc_two_stream_gammas_lw(ng, ssa_total, g_total, &
                    &  gamma1, gamma2)
+#ifdef USE_TIMING
+     ret =  gptlstop('two_stream_gammas')
+#endif 
+#ifdef USE_TIMING
+     ret =  gptlstart('reflectance_transmittance_lw_2')
+#endif 
               call calc_reflectance_transmittance_lw(ng, &
                    &  od_total, gamma1, gamma2, &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1,jcol), &
                    &  reflectance(:,jlev), transmittance(:,jlev), source_up(:,jlev), source_dn(:,jlev))
+#ifdef USE_TIMING
+     ret =  gptlstop('reflectance_transmittance_lw_2')
+#endif 
             else
               ! No-scattering case: use simpler functions for
               ! transmission and emission
+#ifdef USE_TIMING
+     ret =  gptlstart('calc_no_scattering_transmittance_lw_2')
+#endif 
               call calc_no_scattering_transmittance_lw(ng, od_total, &
                    &  planck_hl(:,jlev,jcol), planck_hl(:,jlev+1, jcol), &
                    &  transmittance(:,jlev), source_up(:,jlev), source_dn(:,jlev))
+#ifdef USE_TIMING
+     ret =  gptlstop('calc_no_scattering_transmittance_lw_2')
+#endif 
             end if
 
           else
+#ifdef USE_TIMING
+     ret =  gptlstart('copy_clear_sky')
+#endif 
             ! Clear-sky layer: copy over clear-sky values
             reflectance(:,jlev) = ref_clear(:,jlev)
             transmittance(:,jlev) = trans_clear(:,jlev)
             source_up(:,jlev) = source_up_clear(:,jlev)
             source_dn(:,jlev) = source_dn_clear(:,jlev)
+#ifdef USE_TIMING
+     ret =  gptlstop('copy_clear_sky')
+#endif 
           end if
         end do
         
@@ -303,21 +383,38 @@ contains
 !          call adding_ica_lw(ng, nlev, reflectance, transmittance, source_up, source_dn, &
 !               &  emission(:,jcol), albedo(:,jcol), &
 !               &  flux_up, flux_dn)
+#ifdef USE_TIMING
+     ret =  gptlstart('fast_adding_ica_lw')
+#endif 
           call fast_adding_ica_lw(ng, nlev, reflectance, transmittance, source_up, source_dn, &
                &  emission(:,jcol), albedo(:,jcol), &
                &  is_clear_sky_layer, i_cloud_top, flux_dn_clear, &
                &  flux_up, flux_dn)
+#ifdef USE_TIMING
+     ret =  gptlstop('fast_adding_ica_lw')
+#endif 
         else
+#ifdef USE_TIMING
+     ret =  gptlstart('calc_fluxes_no_scattering_lw_2')
+#endif   
           ! Simpler down-then-up method to compute fluxes
           call calc_fluxes_no_scattering_lw(ng, nlev, &
                &  transmittance, source_up, source_dn, emission(:,jcol), albedo(:,jcol), &
                &  flux_up, flux_dn)
+#ifdef USE_TIMING
+     ret =  gptlstop('calc_fluxes_no_scattering_lw_2')
+#endif            
         end if
         
         ! Store overcast broadband fluxes
+#ifdef USE_TIMING
+     ret =  gptlstart('broadband_flux')
+#endif 
         flux%lw_up(jcol,:) = sum(flux_up,1)
         flux%lw_dn(jcol,:) = sum(flux_dn,1)
-
+#ifdef USE_TIMING
+     ret =  gptlstop('broadband_flux')
+#endif 
         ! Cloudy flux profiles currently assume completely overcast
         ! skies; perform weighted average with clear-sky profile
         flux%lw_up(jcol,:) =  total_cloud_cover *flux%lw_up(jcol,:) &
@@ -331,6 +428,9 @@ contains
         ! Compute the longwave derivatives needed by Hogan and Bozzo
         ! (2015) approximate radiation update scheme
         if (config%do_lw_derivatives) then
+#ifdef USE_TIMING
+     ret =  gptlstart('do_lw_derivatives')
+#endif 
           call calc_lw_derivatives_ica(ng, nlev, jcol, transmittance, flux_up(:,nlev+1), &
                &                       flux%lw_derivatives)
           if (total_cloud_cover < 1.0_jprb - config%cloud_fraction_threshold) then
@@ -338,6 +438,9 @@ contains
             call modify_lw_derivatives_ica(ng, nlev, jcol, trans_clear, flux_up_clear(:,nlev+1), &
                  &                         1.0_jprb-total_cloud_cover, flux%lw_derivatives)
           end if
+#ifdef USE_TIMING
+     ret =  gptlstop('do_lw_derivatives')
+#endif 
         end if
 
       else
@@ -352,6 +455,9 @@ contains
  
         end if
       end if ! Cloud is present in profile
+#ifdef USE_TIMING
+     ret =  gptlstop('total-sky')
+#endif   
     end do
 
     if (lhook) call dr_hook('radiation_mcica_lw:solver_mcica_lw',1,hook_handle)

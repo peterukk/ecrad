@@ -15,6 +15,7 @@
 ! Modifications
 !   2017-04-11  R. Hogan  Changes to enable generalized surface description
 !   2017-09-08  R. Hogan  Reverted some changes
+!   2021-03-01  P. Ukkonen Added support for RRTMGP gas optics
 !
 ! To use the radiation scheme, create a configuration_type object,
 ! call "setup_radiation" on it once to load the look-up-tables and
@@ -34,12 +35,12 @@ contains
   !---------------------------------------------------------------------
   ! Load the look-up-tables and data describing how gas and
   ! hydrometeor absorption/scattering are to be represented
-  subroutine setup_radiation(config)
+  subroutine setup_radiation(config, gas_rrtmgp, solar_irradiance)
 
     use parkind1,         only : jprb
     use yomhook,          only : lhook, dr_hook
     use radiation_config, only : config_type, ISolverMcICA, &
-         &   IGasModelMonochromatic, IGasModelIFSRRTMG, IGasModelRRTMGP
+         &   IGasModelMonochromatic, IGasModelIFSRRTMG, IGasModelRRTMGP, IGasModelECCKD
 
     ! Currently there are two gas absorption models: RRTMG (default)
     ! and monochromatic
@@ -47,12 +48,17 @@ contains
          &   setup_gas_optics_mono     => setup_gas_optics, &
          &   setup_cloud_optics_mono   => setup_cloud_optics, &
          &   setup_aerosol_optics_mono => setup_aerosol_optics
-    use radiation_ifs_rrtm,       only :  setup_gas_optics
-    ! use radiation_ifs_rrtmgp,     only :  setup_gas_optics_ifs_rrtmgp
+    use radiation_ifs_rrtm,       only :  setup_gas_optics_rrtmg => setup_gas_optics
+    use radiation_ecckd_interface,only :  setup_gas_optics_ecckd => setup_gas_optics
+    use radiation_ifs_rrtmgp,     only :  setup_gas_optics_ifs_rrtmgp
     use radiation_cloud_optics,   only :  setup_cloud_optics
+    use radiation_general_cloud_optics, only :  setup_general_cloud_optics
     use radiation_aerosol_optics, only :  setup_aerosol_optics
+    use mo_gas_concentrations,    only :  ty_gas_concs
 
-    type(config_type), intent(inout) :: config
+    type(config_type),  intent(inout)         :: config
+    type(ty_gas_concs), intent(in), optional  :: gas_rrtmgp
+    real(jprb),         intent(in), optional  :: solar_irradiance
 
     real(jprb) :: hook_handle
 
@@ -62,18 +68,18 @@ contains
     ! names
     call config%consolidate()
 
-    ! call setup_gas_optics_ifs_rrtmgp(config, trim(config%directory_name))
-    ! print *, "dirname:", trim(config%directory_name)
-
-
     ! Load the look-up tables from files in the specified directory
     if (config%i_gas_model == IGasModelMonochromatic) then
       call setup_gas_optics_mono(config, trim(config%directory_name))
     else if (config%i_gas_model == IGasModelIFSRRTMG) then
-      call setup_gas_optics(config, trim(config%directory_name))
+      call setup_gas_optics_rrtmg(config, trim(config%directory_name))
+    else if (config%i_gas_model == IGasModelECCKD) then
+      call setup_gas_optics_ecckd(config)
     else if (config%i_gas_model == IGasModelRRTMGP) then
-      call setup_gas_optics_ifs_rrtmgp(config, trim(config%directory_name))
-
+      if (.not. (present(gas_rrtmgp) .and. present(solar_irradiance))) then
+        stop 'gas optics configured as RRTMGP but setup_radiation was called without required arguments'
+      end if
+      call setup_gas_optics_ifs_rrtmgp(config, gas_rrtmgp, solar_irradiance)
     end if
 
     ! Whether or not the "radiation" subroutine needs ssa_lw and g_lw
@@ -121,6 +127,8 @@ contains
     if (config%do_clouds) then
       if (config%i_gas_model == IGasModelMonochromatic) then
         !      call setup_cloud_optics_mono(config)
+      elseif (config%use_general_cloud_optics) then
+        call setup_general_cloud_optics(config)
       else
         call setup_cloud_optics(config)
       end if
@@ -154,15 +162,18 @@ contains
   subroutine set_gas_units(config, gas)
     
     use radiation_config
-    use radiation_gas,           only : gas_type
-    use radiation_monochromatic, only : set_gas_units_mono  => set_gas_units
-    use radiation_ifs_rrtm,      only : set_gas_units_ifs   => set_gas_units
+    use radiation_gas,             only : gas_type
+    use radiation_monochromatic,   only : set_gas_units_mono  => set_gas_units
+    use radiation_ifs_rrtm,        only : set_gas_units_ifs   => set_gas_units
+    use radiation_ecckd_interface, only : set_gas_units_ecckd => set_gas_units
 
     type(config_type), intent(in)    :: config
     type(gas_type),    intent(inout) :: gas
 
     if (config%i_gas_model == IGasModelMonochromatic) then
       call set_gas_units_mono(gas)
+    elseif (config%i_gas_model == IGasModelECCKD) then
+      call set_gas_units_ecckd(gas)
     else
       call set_gas_units_ifs(gas)
     end if
@@ -180,13 +191,9 @@ contains
   ! order of decreasing pressure then radiation_reverse will be called
   ! to reverse the order for the computation and then reverse the
   ! order of the output fluxes to match the inputs.
-! #ifdef BLOCK_DERIVED_TYPES
-! subroutine radiation(ncol, nlev, istartcol, iendcol, config, &
-!   &  single_level, thermodynamics, gas, cloud, aerosol, flux, od_lw, od_sw, ssa_sw, g_sw)
-! #else
   subroutine radiation(ncol, nlev, istartcol, iendcol, config, &
        &  single_level, thermodynamics, gas, cloud, aerosol, flux)
-! #endif
+
     use parkind1,                 only : jprb
     use yomhook,                  only : lhook, dr_hook
 
@@ -214,21 +221,20 @@ contains
     use radiation_save,           only : save_radiative_properties
 #ifdef USE_TIMING
     ! Timing library
-    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
-                                     gptlpercent, gptloverhead
+    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, &
+        & gptlfinalize, gptlsetoption, gptlpercent, gptloverhead
 #endif
     ! Treatment of gas and hydrometeor optics 
     use radiation_monochromatic,  only : &
          &   gas_optics_mono         => gas_optics, &
          &   cloud_optics_mono       => cloud_optics, &
          &   add_aerosol_optics_mono => add_aerosol_optics
-    use radiation_ifs_rrtm,       only : gas_optics
-    ! use radiation_ifs_rrtmgp,     only : gas_optics_ifs_rrtmgp
-    ! ^ For some mysterious reason, caused catastrophic error on ifort.
-    ! Moved the subroutine to this file instead, and works fine
+    use radiation_ifs_rrtm,       only : gas_optics_rrtmg => gas_optics
+    use radiation_ecckd_interface,only : gas_optics_ecckd => gas_optics
+    use radiation_ifs_rrtmgp,     only : gas_optics_ifs_rrtmgp
     use radiation_cloud_optics,   only : cloud_optics
+    use radiation_general_cloud_optics, only : general_cloud_optics
     use radiation_aerosol_optics, only : add_aerosol_optics
-    use mo_gas_optics_rrtmgp,     only: ty_gas_optics_rrtmgp
 
     ! Inputs
     integer, intent(in) :: ncol               ! number of columns
@@ -242,10 +248,6 @@ contains
     type(aerosol_type),       intent(in)   :: aerosol
     ! Output
     type(flux_type),          intent(inout):: flux
-! #ifdef BLOCK_DERIVED_TYPES
-!     real(jprb), dimension(config%n_g_lw,nlev,iendcol), intent(inout) :: od_lw
-!     real(jprb), dimension(config%n_g_sw,nlev,iendcol), intent(inout) :: od_sw, ssa_sw, g_sw
-! #endif
 
     ! Local variables
 
@@ -253,9 +255,7 @@ contains
     ! gases and aerosols at each longwave g-point, where the latter
     ! two variables are only defined if aerosol longwave scattering is
     ! enabled (otherwise both are treated as zero).
-! #ifndef BLOCK_DERIVED_TYPES
     real(jprb), dimension(config%n_g_lw,nlev,istartcol:iendcol) :: od_lw
-! #endif
     real(jprb), dimension(config%n_g_lw_if_scattering,nlev,istartcol:iendcol) :: &
          &  ssa_lw, g_lw
 
@@ -270,9 +270,8 @@ contains
 
     ! Layer optical depth, single scattering albedo and asymmetry factor of
     ! gases and aerosols at each shortwave g-point
-! #ifndef BLOCK_DERIVED_TYPES
     real(jprb), dimension(config%n_g_sw,nlev,istartcol:iendcol) :: od_sw, ssa_sw, g_sw
-! #endif
+
     ! Layer in-cloud optical depth, single scattering albedo and
     ! asymmetry factor of hydrometeors in each shortwave band
     real(jprb), dimension(config%n_bands_sw,nlev,istartcol:iendcol)   :: &
@@ -298,6 +297,14 @@ contains
     ! incoming radiation at top-of-atmosphere in each of the shortwave
     ! g-points
     real(jprb), dimension(config%n_g_sw,istartcol:iendcol) :: incoming_sw
+
+    integer, dimension(config%n_g_sw) :: sw_inds, sw_inds_tmp
+    integer, dimension(config%n_g_lw) :: lw_inds, lw_inds_tmp
+
+    real(jprb), dimension(config%n_g_sw) :: od_sw_means
+    real(jprb), dimension(config%n_g_lw) :: od_lw_means
+
+    integer :: jg
 
     character(len=100) :: rad_prop_file_name
     character(*), parameter :: rad_prop_base_file_name = "radiative_properties"
@@ -327,11 +334,6 @@ contains
            &                        sw_albedo_direct, sw_albedo_diffuse, &
            &                        lw_albedo)
 
-
-      if (config%i_gas_model ==  IGasModelRRTMGP) then
-
-      end if
-
       ! Compute gas absorption optical depth in shortwave and
       ! longwave, shortwave single scattering albedo (i.e. fraction of
       ! extinction due to Rayleigh scattering), Planck functions and
@@ -346,20 +348,25 @@ contains
              &  od_lw, od_sw, ssa_sw, &
              &  planck_hl, lw_emission, incoming_sw)
       else if (config%i_gas_model == IGasModelIFSRRTMG) then
-        call gas_optics(ncol,nlev,istartcol,iendcol, config, &
+        call gas_optics_rrtmg(ncol,nlev,istartcol,iendcol, config, &
              &  single_level, thermodynamics, gas, &
              &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
              &  planck_hl=planck_hl, lw_emission=lw_emission, &
              &  incoming_sw=incoming_sw)
-      else if (config%i_gas_model ==  IGasModelRRTMGP) then
-        call gas_optics_ifs_rrtmgp(iendcol-istartcol+1,nlev, config, &
-        &  single_level, thermodynamics, gas, &
-        &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
-        &  planck_hl=planck_hl, lw_emission=lw_emission, &
-        &  incoming_sw=incoming_sw)
-      else 
-        
+      else if (config%i_gas_model == IGasModelRRTMGP) then
+        call gas_optics_ifs_rrtmgp(ncol,nlev,config, &
+             &  single_level, thermodynamics, gas, &
+             &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
+             &  planck_hl=planck_hl, lw_emission=lw_emission, &
+             &  incoming_sw=incoming_sw)
+      else
+        call gas_optics_ecckd(ncol,nlev,istartcol,iendcol, config, &
+             &  single_level, thermodynamics, gas, &
+             &  od_lw, od_sw, ssa_sw, lw_albedo=lw_albedo, &
+             &  planck_hl=planck_hl, lw_emission=lw_emission, &
+             &  incoming_sw=incoming_sw)
       end if
+      
 #ifdef USE_TIMING
     ret =  gptlstop('gas_optics')
     ret =  gptlstart('clouds')
@@ -379,6 +386,11 @@ contains
                &  config, thermodynamics, cloud, &
                &  od_lw_cloud, ssa_lw_cloud, g_lw_cloud, &
                &  od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
+        elseif (config%use_general_cloud_optics) then
+          call general_cloud_optics(nlev, istartcol, iendcol, &
+               &  config, thermodynamics, cloud, & 
+               &  od_lw_cloud, ssa_lw_cloud, g_lw_cloud, &
+               &  od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
         else
           call cloud_optics(nlev, istartcol, iendcol, &
                &  config, thermodynamics, cloud, & 
@@ -386,6 +398,7 @@ contains
                &  od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
         end if
       end if ! do_clouds
+
 #ifdef USE_TIMING
     ret =  gptlstop('clouds')
     ret =  gptlstart('aerosols')
@@ -410,6 +423,9 @@ contains
 #ifdef USE_TIMING
     ret =  gptlstop('aerosols')
 #endif  
+#ifdef USE_TIMING
+    ret =  gptlstart('save_rad_prop')
+#endif  
       ! For diagnostic purposes, save these intermediate variables to
       ! a NetCDF file
       if (config%do_save_radiative_properties) then
@@ -428,7 +444,9 @@ contains
              &  od_lw_cloud, ssa_lw_cloud, g_lw_cloud, &
              &  od_sw_cloud, ssa_sw_cloud, g_sw_cloud)
       end if
-
+#ifdef USE_TIMING
+    ret =  gptlstop('save_rad_prop')
+#endif  
       if (config%do_lw) then
         if (config%iverbose >= 2) then
           write(nulout,'(a)') 'Computing longwave fluxes'
@@ -500,7 +518,7 @@ contains
 #ifdef USE_TIMING
     ret =  gptlstart('mcica_sw')
 #endif
-          call solver_mcica_sw(nlev,istartcol,iendcol, &
+        call solver_mcica_sw(nlev,istartcol,iendcol, &
                &  config, single_level, cloud, & 
                &  od_sw, ssa_sw, g_sw, od_sw_cloud, ssa_sw_cloud, &
                &  g_sw_cloud, sw_albedo_direct, sw_albedo_diffuse, &
@@ -668,9 +686,9 @@ contains
     end if
 
     ! Run radiation scheme on reversed profiles
-    ! call radiation(ncol, nlev,istartcol,iendcol, &
-    !      &  config, single_level, thermodynamics_rev, gas_rev, &
-    !      &  cloud_rev, aerosol_rev, flux_rev)
+    call radiation(ncol, nlev,istartcol,iendcol, &
+         &  config, single_level, thermodynamics_rev, gas_rev, &
+         &  cloud_rev, aerosol_rev, flux_rev)
 
     ! Reorder fluxes
     if (allocated(flux%lw_up)) then
@@ -717,87 +735,77 @@ contains
 
   end subroutine radiation_reverse
 
-  subroutine gas_optics_ifs_rrtmgp(ncol,nlev, &
-         &  config, single_level, thermodynamics, gas, & 
-         &  od_lw, od_sw, ssa_sw, lw_albedo, planck_hl, lw_emission, &
-         &  incoming_sw)
+  ! function mean3(x3) result(mean)
+  !   use parkind1,         only : jprb
+  !   real(jprb), dimension(:,:,:), intent(in) :: x3
+  !   real(jprb) :: mean
+    
+  !   mean = sum(sum(sum(x3, dim=1),dim=1),dim=1) / size(x3)
+
+  ! end function mean3
+
+  function mean2(x2) result(mean)
+    use parkind1,         only : jprb
+    real(jprb), dimension(:,:), intent(in) :: x2
+    real(jprb) :: mean
+    
+    mean = sum(sum(x2, dim=1),dim=1) / size(x2)
+
+  end function mean2
+
+  subroutine merge_argsort(r,d)
+    use parkind1,         only : jprb
+
+    real(jprb), intent(in), dimension(:) :: r
+    integer, intent(out), dimension(size(r)) :: d
   
-    use parkind1,                 only : jprb, jpim
-    use yomhook,   only : lhook, dr_hook
+    integer, dimension(size(r)) :: il
 
-    use radiation_config,         only : config_type, ISolverSpartacus
-    use radiation_thermodynamics, only : thermodynamics_type
-    use radiation_single_level,   only : single_level_type
-    use radiation_gas
-    use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
-
-
-    integer, intent(in) :: ncol               ! number of columns
-    integer, intent(in) :: nlev               ! number of model levels
-    type(config_type), intent(in) :: config
-    type(single_level_type),  intent(in) :: single_level
-    type(thermodynamics_type),intent(in) :: thermodynamics
-    type(gas_type),           intent(in) :: gas
-
-    ! Longwave albedo of the surface
-    real(jprb), dimension(config%n_g_lw,ncol), &
-          &  intent(in), optional :: lw_albedo
-
-    ! Gaseous layer optical depth in longwave and shortwave, and
-    ! shortwave single scattering albedo (i.e. fraction of extinction
-    ! due to Rayleigh scattering) at each g-point
-    real(jprb), dimension(config%n_g_lw,nlev,ncol), intent(out) :: &
-          &   od_lw
-    real(jprb), dimension(config%n_g_sw,nlev,ncol), intent(out) :: &
-          &   od_sw, ssa_sw
-
-    ! The Planck function (emitted flux from a black body) at half
-    ! levels at each longwave g-point
-    real(jprb), dimension(config%n_g_lw,nlev+1,ncol), &
-          &   intent(out), optional :: planck_hl
-    ! Planck function for the surface (W m-2)
-    real(jprb), dimension(config%n_g_lw,ncol), &
-          &   intent(out), optional :: lw_emission
-
-    ! The incoming shortwave flux into a plane perpendicular to the
-    ! incoming radiation at top-of-atmosphere in each of the shortwave
-    ! g-points
-    real(jprb), dimension(config%n_g_sw,ncol), &
-          &   intent(out), optional :: incoming_sw
-
-    real(jprb) :: incoming_sw_scale(ncol)
-
-
-    integer :: jlev, jgreorder, jg, ig, iband, jcol
-
-    real(jprb) :: hook_handle
-
-  end subroutine gas_optics_ifs_rrtmgp
-
-  subroutine setup_gas_optics_ifs_rrtmgp(config, directory)
+    integer :: stepsize
+    integer :: i,j,n,left,k,ksize
   
-    use radiation_config
-    use yomhook,   only : lhook, dr_hook
-    use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
-    use mo_gas_concentrations, only: ty_gas_concs
+    n = size(r)
+  
+    do i=1,n
+        d(i)=i
+    end do
+  
+    if ( n==1 ) return
+  
+    stepsize = 1
+    do while (stepsize<n)
+        do left=1,n-stepsize,stepsize*2
+            i = left
+            j = left+stepsize
+            ksize = min(stepsize*2,n-left+1)
+            k=1
+      
+            do while ( i<left+stepsize .and. j<left+ksize )
+                if ( r(d(i))>r(d(j)) ) then
+                    il(k)=d(i)
+                    i=i+1
+                    k=k+1
+                else
+                    il(k)=d(j)
+                    j=j+1
+                    k=k+1
+                endif
+            enddo
+      
+            if ( i<left+stepsize ) then
+                ! fill up remaining from left
+                il(k:ksize) = d(i:left+stepsize-1)
+            else
+                ! fill up remaining from right
+                il(k:ksize) = d(j:left+ksize-1)
+            endif
+            d(left:left+ksize-1) = il(1:ksize)
+        end do
+        stepsize=stepsize*2
+    end do
 
-    type(config_type), intent(inout), target :: config
-    character(len=*), intent(in)     :: directory
+    return
+end subroutine  
 
-    integer :: irep ! For implied do
-
-    real(jprb) :: hook_handle
-
-    type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
-
-
-    if (lhook) call dr_hook('radiation_ifs_rrtmgp:setup_gas_optics',0,hook_handle)
-
-    ! The IFS implementation of RRTMG uses many global variables.  In
-    ! the IFS these will have been set up already; otherwise set them
-    ! up now.
-
-
-  end subroutine setup_gas_optics_ifs_rrtmgp
 
 end module radiation_interface

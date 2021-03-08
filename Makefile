@@ -44,13 +44,22 @@ ifdef SINGLE_PRECISION
 CPPFLAGS += -DSINGLE_PRECISION
 endif
 
-# Use shortwave reflectance-transmittance routine from ecRAD,
+# Use shortwave reflectance-transmittance routine from RTE,
 # which uses the same equations but should be faster
 #ifdef USE_RTE_REFTRANS_SW
 CPPFLAGS += -DUSE_RTE_REFTRANS_SW
 #endif
 
-# ------------- NEW FOR OPT -------------- 
+# Use longwave upward and downward source routine from RTE
+ifdef USE_RTE_LW_SOURCE
+CPPFLAGS += -DUSE_RTE_LW_SOURCE
+endif
+
+# ------------- NEW FOR ECRAD+RRTMGP-------------- 
+
+# For RRTMGP: ecRAD does not use a source function defined at full model levels, skip this variable
+# CPPFLAGS += -DNO_LAY_SOURCE
+
 ifdef FAST_EXPONENTIAL
 CPPFLAGS += -DFAST_EXPONENTIAL
 endif
@@ -59,20 +68,32 @@ ifdef BLOCK_DERIVED_TYPES
 CPPFLAGS += -DBLOCK_DERIVED_TYPES
 endif
 
+ifeq ($(BLASLIB),blis)
+BLAS_INCLUDE = -I$(BLAS_DIR)/include/blis
+LIBS_BLAS    = $(BLAS_DIR)/lib/libblis.a -lm -lpthread 
+else ifeq ($(BLASLIB),blis-amd)
+BLAS_INCLUDE  = -I$(BLAS_DIR)/include/blis
+LIBS_BLAS     = $(BLAS_DIR)/lib/libblis-mt.a -lm -lpthread 
+else ifeq ($(BLASLIB),openblas)
+LIBS_BLAS     = -lopenblas 
+else ifeq ($(BLASLIB),mkl)
+BLAS_INCLUDE  += -I${MKLROOT}/include
+endif
+
 # Use the GPTL timing library?
 ifeq ($(GPTL_TIMING),1)
 CPPFLAGS += -DUSE_TIMING
-TIMING_INCLUDE += -I$(TIME_DIR)/include
-LDFLAGS_TIME += -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib
-LIBS_TIMING += -lgptl  -rdynamic  
+TIMING_INCLUDE = -I$(TIME_DIR)/include
+LDFLAGS_TIME = -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib
+LIBS_TIMING = -lgptl  -rdynamic  
 # Use the GPTL timing library with PAPI enabled to estimate computational intensity
 else ifeq ($(GPTL_TIMING),2)
 # GPTL + PAPI 
 CPPFLAGS += -DUSE_TIMING  -DUSE_PAPI
-TIMING_INCLUDE += -I$(TIME_DIR)/include 
+TIMING_INCLUDE = -I$(TIME_DIR)/include 
 LDFLAGS_TIME = -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib
 #LIBS_TIMING += -L$(TIME_DIR)/lib -Wl,-rpath=$(TIME_DIR)/lib -lgptl -rdynamic -lpapi
-LIBS_TIMING +=  -lpthread -lgptl -rdynamic -lpapi
+LIBS_TIMING =  -lpthread -lgptl -rdynamic -lpapi
 endif
 
 # Use LIBDXSMM for small matrix-matrix multiplications in SPARTACUS
@@ -103,9 +124,9 @@ endif
 export FC
 # ------------- NEW FOR OPT -------------- 
 export FCFLAGS = $(WARNFLAGS) $(BASICFLAGS) $(CPPFLAGS) -I../include \
-	$(OPTFLAGS) $(DEBUGFLAGS) $(LIBXSMM_INCLUDE) $(NETCDF_INCLUDE) $(TIMING_INCLUDE)  $(OMPFLAG)
+	$(OPTFLAGS) $(DEBUGFLAGS) $(BLAS_INCLUDE) $(LIBXSMM_INCLUDE) $(NETCDF_INCLUDE) $(TIMING_INCLUDE)  $(OMPFLAG)
 export LIBS    = $(LDFLAGS) -L../lib  $(LDFLAGS_TIME) -lradsurf -lradiation -lutilities \
-	-lifsrrtm  -ldrhook -lifsaux  -lrrtmgp -lrte -lneural -lnetcdff -lnetcdf $(FCLIBS) $(NETCDF_LIB) $(LIBS_TIMING) $(LDFLAGS_LIBXSMM) $(OMPFLAG) 
+	-lifsrrtm  -ldrhook -lifsaux  -lrrtmgp -lrte -lneural -lnetcdff -lnetcdf $(FCLIBS) $(LIBS_BLAS) $(NETCDF_LIB) $(LIBS_TIMING) $(LDFLAGS_LIBXSMM) $(OMPFLAG) 
 # ------------- NEW FOR OPT -------------- 
 #export FCFLAGS = $(WARNFLAGS) $(BASICFLAGS) $(CPPFLAGS) -I../include \
 #	$(OPTFLAGS) $(DEBUGFLAGS) $(NETCDF_INCLUDE) $(OMPFLAG)

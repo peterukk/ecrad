@@ -331,7 +331,7 @@ contains
                &     + (1.0_jprb - total_cloud_cover)*flux%sw_dn_diffuse_surf_clear_g(:,jcol)
           flux%sw_dn_direct_surf_g(:,jcol) = total_cloud_cover *flux%sw_dn_direct_surf_g(:,jcol) &
                &     + (1.0_jprb - total_cloud_cover)*flux%sw_dn_direct_surf_clear_g(:,jcol)
-
+          
         else
           ! No cloud in profile and clear-sky fluxes already
           ! calculated: copy them over

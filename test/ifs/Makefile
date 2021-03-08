@@ -2,68 +2,109 @@ INPUT = ecrad_meridian
 
 #DRIVER = totalview ../../bin/ecrad -a
 DRIVER = ../../bin/ecrad
+CHANGENAM = ../common/change_namelist.sh
 
 #CONFIG = configCY43R3.nam
 #CONFIG = configCY46R1.nam
 CONFIG = configCY47R1.nam
+CONFIG_RRTMGP = configRRTMGP.nam
 
 # Typing "make" will run radiation scheme on IFS profiles
 all: test
 
 test: test_default test_noaer test_expran test_tripleclouds test_spartacus \
-	test_spartacus_maxentr
+	test_spartacus_maxentr test_ecckd
 
 # (a) Default IFS settings: McICA solver with exponential-exponential
 # overlap
 test_default:
 	$(DRIVER) $(CONFIG) $(INPUT).nc $(INPUT)_default_out.nc
-	
-# (a) Default IFS settings, more columns
-# overlap
-test_default_big:
-	$(DRIVER) $(CONFIG) inputs_bigg.nc inputs_bigg_default_out.nc
 
 # (b) Turn off aerosols
 test_noaer:
-	./change_namelist.sh $(CONFIG) config_noaer.nam \
+	$(CHANGENAM) $(CONFIG) config_noaer.nam \
 		use_aerosols=false
 	$(DRIVER) config_noaer.nam $(INPUT).nc $(INPUT)_noaer_out.nc
 
 # (c) Exponential-random overlap
 test_expran:
-	./change_namelist.sh $(CONFIG) config_expran.nam \
+	$(CHANGENAM) $(CONFIG) config_expran.nam \
 		overlap_scheme_name='"Exp-Ran"'
 	$(DRIVER) config_expran.nam $(INPUT).nc $(INPUT)_expran_out.nc
 
 # (d) Tripleclouds solver with exponential-random overlap 
 test_tripleclouds:
-	./change_namelist.sh $(CONFIG) config_tc.nam \
+	$(CHANGENAM) $(CONFIG) config_tc.nam \
 		sw_solver_name='"Tripleclouds"' lw_solver_name='"Tripleclouds"' \
 		overlap_scheme_name='"Exp-Ran"'
 	$(DRIVER) config_tc.nam $(INPUT).nc $(INPUT)_tc_out.nc
 
 # (e) Longwave scattering; since 46R1 this is the default
 test_lwscat:
-	./change_namelist.sh $(CONFIG) config_lwscat.nam \
+	$(CHANGENAM) $(CONFIG) config_lwscat.nam \
 		do_lw_cloud_scattering="true"
 	$(DRIVER) config_lwscat.nam $(INPUT).nc $(INPUT)_lwscat_out.nc
 
 # (f) 3D radiative transfer
 test_spartacus:
-	./change_namelist.sh $(CONFIG) config_spartacus.nam \
+	$(CHANGENAM) $(CONFIG) config_spartacus.nam \
 		sw_solver_name='"SPARTACUS"' lw_solver_name='"SPARTACUS"' \
 		do_3d_effects="true" overlap_scheme_name='"Exp-Ran"' \
 		do_sw_delta_scaling_with_gases="false"
 	$(DRIVER) config_spartacus.nam $(INPUT).nc $(INPUT)_spartacus_out.nc
 
+test_spartacus_big:
+	$(CHANGENAM) $(CONFIG) config_spartacus.nam \
+		sw_solver_name='"SPARTACUS"' lw_solver_name='"SPARTACUS"' \
+		do_3d_effects="true" overlap_scheme_name='"Exp-Ran"' \
+		do_sw_delta_scaling_with_gases="false"
+	$(DRIVER) config_spartacus.nam inputs_Big.nc $(INPUT)_spartacus_out_BIG.nc
+
 # (g) 3D radiative transfer using the older "maximum entrapment"
 test_spartacus_maxentr:
-	./change_namelist.sh $(CONFIG) config_spartacus_maxentr.nam \
+	$(CHANGENAM) $(CONFIG) config_spartacus_maxentr.nam \
 		sw_solver_name='"SPARTACUS"' lw_solver_name='"SPARTACUS"' \
 		do_3d_effects="true" overlap_scheme_name='"Exp-Ran"' \
 		sw_entrapment_name='"Maximum"' \
 		do_sw_delta_scaling_with_gases="false"
 	$(DRIVER) config_spartacus_maxentr.nam $(INPUT).nc $(INPUT)_spartacus_maxentr_out.nc
+
+test_ecckd:
+	$(CHANGENAM) $(CONFIG) config_ecckd.nam \
+		gas_model_name='"ECCKD"' aerosol_optics_override_file_name='"aerosol_ifs_48R1.nc"' \
+		use_general_cloud_optics=true use_general_aerosol_optics=true
+	$(DRIVER) config_ecckd.nam $(INPUT).nc $(INPUT)_ecckd_out.nc
+#		sw_solver_name='"Homogeneous"' lw_solver_name='"Homogeneous"'
+
+test_ecckd_noaer:
+	$(CHANGENAM) $(CONFIG) config_ecckd_noaer.nam \
+		gas_model_name='"ECCKD"' use_aerosols=false \
+		use_general_cloud_optics=true use_general_aerosol_optics=true
+	$(DRIVER) config_ecckd_noaer.nam $(INPUT).nc $(INPUT)_ecckd_noaer_out.nc
+
+test_cloudless:
+	$(CHANGENAM) $(CONFIG) config_cloudless.nam \
+		use_aerosols=false \
+		sw_solver_name='"Cloudless"' lw_solver_name='"Cloudless"'
+	$(DRIVER) config_cloudless.nam $(INPUT).nc $(INPUT)_cloudless_out.nc
+
+# (a) Default IFS settings, more columns
+test_default_big:
+	$(DRIVER) $(CONFIG) inputs_Big.nc inputs_Big_default_out.nc
+
+test_ecckd_big:
+	$(CHANGENAM) $(CONFIG) config_ecckd.nam \
+		gas_model_name='"ECCKD"' aerosol_optics_override_file_name='"aerosol_ifs_48R1.nc"' \
+		use_general_cloud_optics=true use_general_aerosol_optics=true
+	$(DRIVER) config_ecckd.nam inputs_Big.nc inputs_Big_default_out.nc
+
+		
+# (a) Default IFS settings, RRTMGP gas optics
+test_rrtmgp:
+	$(DRIVER) $(CONFIG_RRTMGP) $(INPUT).nc $(INPUT)_default_out.nc
+	
+test_rrtmgp_big:
+	$(DRIVER) $(CONFIG_RRTMGP) inputs_Big.nc inputs_Big_default_out.nc
 
 # Clean data files
 clean:

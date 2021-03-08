@@ -129,7 +129,7 @@ contains
       if (config%do_save_spectral_flux) then
         if (config%n_spec_lw == 0) then
           write(nulerr,'(a)') '*** Error: number of LW spectral points to save not yet defined ' &
-               & // 'so cannot allocated spectral flux arrays'
+               & // 'so cannot allocate spectral flux arrays'
           call radiation_abort()
         end if
         
@@ -462,7 +462,7 @@ contains
   function out_of_physical_bounds(this, istartcol, iendcol) result(is_bad)
 
     use yomhook,          only : lhook, dr_hook
-    use radiation_config, only : out_of_bounds_2d
+    use radiation_check,  only : out_of_bounds_2d
 
     class(flux_type), intent(inout) :: this
     integer, optional,intent(in) :: istartcol, iendcol

@@ -69,7 +69,11 @@ contains
     use radiation_lw_derivatives, only : calc_lw_derivatives_matrix
     use radiation_constants,      only : Pi, GasConstantDryAir, &
          AccelDueToGravity
-
+#ifdef USE_TIMING
+    ! Timing library
+    use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, gptlfinalize, gptlsetoption, &
+                                     gptlpercent, gptloverhead
+#endif
     implicit none
 
     ! Inputs
@@ -266,7 +270,7 @@ contains
 
     ! Keep a count of the number of calls to the two ways of computing
     ! reflectance/transmittance matrices
-    integer :: n_calls_expm, n_calls_meador_weaver
+    integer :: n_calls_expm, n_calls_meador_weaver, n_irregular_ng3d
 
     ! Identify clear-sky layers, with pseudo layers for outer space
     ! and below the ground, both treated as single-region clear skies
@@ -595,6 +599,10 @@ contains
         ! Section 3.3: Compute reflection, transmission and emission
         ! --------------------------------------------------------
         if (ng3D > 0) then
+
+          if ((ng3D > 0) .and. (ng3D < ng)) n_irregular_ng3d = n_irregular_ng3d + 1
+     !     print *,  "ilev", jlev, "ng3D:", ng3D, "/", ng
+
           ! --- Section 3.3a: g-points with 3D effects ----------
 
           ! 3D effects need to be represented in "ng3D" of the g
@@ -704,8 +712,13 @@ contains
 
           ! Compute the matrix exponential of Gamma_z1, returning the
           ! result in-place
+#ifdef USE_TIMING
+    ret =  gptlstart('expm')
+#endif 
           call expm(ng, ng3D, 2*nreg, Gamma_z1, IMatrixPatternDense)
-
+#ifdef USE_TIMING
+    ret =  gptlstop('expm')
+#endif 
           ! Update count of expm calls
           n_calls_expm = n_calls_expm + ng3D
 
@@ -1070,6 +1083,7 @@ contains
     if (config%iverbose >= 3) then
       write(nulout,*)
     end if
+
 
     ! Report number of calls to each method of solving single-layer
     ! two-stream equations

@@ -870,11 +870,11 @@ contains
 
   end function solve_mat
 
-  pure subroutine mat_square_sw(m,iend,A,C)
+  pure subroutine mat_square_sw(m,ng,A,C)
 
-    integer,    intent(in)                        :: m,iend
-    real(jprb), intent(in),  dimension(iend,m,m)  :: A
-    real(jprb), intent(out), dimension(iend,m,m)  :: C
+    integer,    intent(in)                        :: m,ng
+    real(jprb), intent(in),  dimension(ng,m,m)  :: A
+    real(jprb), intent(out), dimension(ng,m,m)  :: C
     integer    :: j1, j2, j3
     integer    :: mblock, m2block
 
@@ -917,11 +917,11 @@ contains
 
   end subroutine mat_square_sw
 
-  pure subroutine mat_square_sw_9(iend,A,C)
+  pure subroutine mat_square_sw_9(ng,A,C)
 
-    integer,    intent(in)                        :: iend
-    real(jprb), intent(in),  dimension(iend,9,9)  :: A
-    real(jprb), intent(out), dimension(iend,9,9)  :: C
+    integer,    intent(in)                        :: ng
+    real(jprb), intent(in),  dimension(ng,9,9)  :: A
+    real(jprb), intent(out), dimension(ng,9,9)  :: C
     integer    :: j1, j2, j3, jg
 
     ! First input matrix has pattern
@@ -971,11 +971,11 @@ contains
 
   end subroutine mat_square_sw_9
 
-  pure subroutine mat_x_mat_sw_9(iend,A,B,C)
+  pure subroutine mat_x_mat_sw_9(ng,A,B,C)
 
-    integer,    intent(in)                      :: iend
-    real(jprb), intent(in), dimension(iend,9,9) :: A, B
-    real(jprb), intent(out),dimension(iend,9,9) :: C
+    integer,    intent(in)                      :: ng
+    real(jprb), intent(in), dimension(ng,9,9) :: A, B
+    real(jprb), intent(out),dimension(ng,9,9) :: C
     integer    :: j1, j2, j3
 
     do j2 = 1,3  !    1,3 
@@ -1011,16 +1011,16 @@ contains
   end subroutine mat_x_mat_sw_9
 
   !---------------------------------------------------------------------
-  ! Solve AX=B, where A, X and B consist of iend m-by-m matrices
+  ! Solve AX=B, where A, X and B consist of ng m-by-m matrices
   ! Overwrite B with X. A is corrupted
-  pure subroutine solve_mat_sw_9(iend,A,B)
-    integer,    intent(in) :: iend
-    real(jprb), intent(inout) :: A(iend,9,9) ! A=LU is corrupted
-    real(jprb), intent(inout) :: B(iend,9,9) ! X = B, both input and output
-    ! real(jprb), intent(out):: X(iend,m,m)
+  pure subroutine solve_mat_sw_9(ng,A,B)
+    integer,    intent(in) :: ng
+    real(jprb), intent(inout) :: A(ng,9,9) ! A=LU is corrupted
+    real(jprb), intent(inout) :: B(ng,9,9) ! X = B, both input and output
+    ! real(jprb), intent(out):: X(ng,m,m)
 
     integer :: j,j1, j2, j3, mblock, m2block,m
-    real(jprb) :: s(iend)
+    real(jprb) :: s(ng)
 
     !     (C   D  E)
     ! A = (-D -C  H)
@@ -1240,12 +1240,12 @@ contains
   ! Like expm, but optimized for the shortwave, which has
   ! a special matrix structure with zeros and repeated elements. 
   ! Further assumes nreg = 3  =>  m = 9
-  subroutine expm_opt(iend,A)
+  subroutine expm_opt(ng,A)
 
     use yomhook, only : lhook, dr_hook
 
-    integer,    intent(in)      :: iend
-    real(jprb), intent(inout)   :: A(iend,9,9)
+    integer,    intent(in)      :: ng
+    real(jprb), intent(inout)   :: A(ng,9,9)
 
     real(jprb), parameter :: theta(3) = (/4.258730016922831e-01_jprb, &
          &                                1.880152677804762e+00_jprb, &
@@ -1254,15 +1254,15 @@ contains
          &                1995840.0_jprb, 277200.0_jprb, 25200.0_jprb, &
          &                1512.0_jprb, 56.0_jprb, 1.0_jprb/)
 
-    real(jprb), dimension(iend,9,9) :: A2, A4, A6
-    real(jprb), dimension(iend,9,9) :: U, V
+    real(jprb), dimension(ng,9,9) :: A2, A4, A6
+    real(jprb), dimension(ng,9,9) :: U, V
     real(jprb), dimension(9,9)      :: temp_in, temp_out
-    real(jprb) :: normA(iend), sum_column(iend)
+    real(jprb) :: normA(ng), sum_column(ng)
 
     integer    :: j1, j2, j3, j4,minexpo, nrepeat
-    real(jprb) :: frac(iend)
-    integer    :: expo(iend)
-    real(jprb) :: scaling(iend)
+    real(jprb) :: frac(ng)
+    integer    :: expo(ng)
+    real(jprb) :: scaling(ng)
     real(jprb) :: hook_handle
 #ifdef USE_TIMING
     ret =  gptlstart('expm_opt')
@@ -1275,11 +1275,11 @@ contains
     do j3 = 1,9
       sum_column(:) = 0.0_jprb
       do j2 = 1,9
-        do j1 = 1,iend
+        do j1 = 1,ng
           sum_column(j1) = sum_column(j1) + abs(A(j1,j2,j3))
         end do
       end do
-      do j1 = 1,iend
+      do j1 = 1,ng
         if (sum_column(j1) > normA(j1)) then
           normA(j1) = sum_column(j1)
         end if
@@ -1312,20 +1312,20 @@ contains
 #ifdef USE_TIMING
     ret =  gptlstart('expm_mat_squares')
 #endif 
-    call mat_square_sw_9(iend,A,A2)    ! These matrices have zeroes in the lower left corner AND repeated elements
-    call mat_square_sw_9(iend,A2,A4)
+    call mat_square_sw_9(ng,A,A2)    ! These matrices have zeroes in the lower left corner AND repeated elements
+    call mat_square_sw_9(ng,A2,A4)
 
 #ifdef USE_TIMING
     ret =  gptlstop('expm_mat_squares')
 #endif 
-    call mat_x_mat_sw_9(iend,A2,A4,A6) ! These matrices have zeroes in the lower left corner AND repeated elements
+    call mat_x_mat_sw_9(ng,A2,A4,A6) ! These matrices have zeroes in the lower left corner AND repeated elements
 
     V = c(8)*A6 + c(6)*A4 + c(4)*A2
     do j3 = 1,9
       V(:,j3,j3) = V(:,j3,j3) + c(2)
     end do
 
-    U = mat_x_mat(iend,iend,9,A,V,IMatrixPatternShortwave)
+    U = mat_x_mat(ng,ng,9,A,V,IMatrixPatternShortwave)
 
 #ifdef USE_TIMING
     ret =  gptlstop('expm_Pade_mat_x_mat')
@@ -1342,8 +1342,8 @@ contains
 #ifdef USE_TIMING
     ret =  gptlstart('expm_solve_mat')
 #endif 
-    ! A = solve_mat(n,iend,m,V,U)
-    call solve_mat_sw_9(iend,V,A)
+    ! A = solve_mat(n,ng,m,V,U)
+    call solve_mat_sw_9(ng,V,A)
 
 #ifdef USE_TIMING
     ret =  gptlstop('expm_solve_mat')
@@ -1358,21 +1358,21 @@ contains
     ret =  gptlstart('expm_square_matrix_repeated')
 #endif 
 
-#ifdef USE_TIMING
-    ret =  gptlstart('expm_square_matrix_minexpo')
-#endif 
+! #ifdef USE_TIMING
+!     ret =  gptlstart('expm_square_matrix_minexpo')
+! #endif 
 
     ! To improve efficiency, square all matrices with the minimum expo first, and then square individual matrices as needed
     do j1 = 1,minexpo
-      call mat_square_sw(9,iend,A,A2)
+      call mat_square_sw(9,ng,A,A2)
       A = A2
     end do
 
-#ifdef USE_TIMING
-    ret =  gptlstop('expm_square_matrix_minexpo')
-#endif 
+! #ifdef USE_TIMING
+!     ret =  gptlstop('expm_square_matrix_minexpo')
+! #endif 
 
-    do j1 = 1,iend
+    do j1 = 1,ng
       if (expo(j1) > minexpo) then
         nrepeat = expo(j1)-minexpo
         !Square matrix nrepeat times 
@@ -1471,7 +1471,9 @@ contains
     real(jprb) :: hook_handle
 
     if (lhook) call dr_hook('radiation_matrix:fast_expm_exchange_3',0,hook_handle)
-
+! #ifdef USE_TIMING
+!      ret =  gptlstart('fast_expm_exchange_3')
+! #endif 
     ! Eigenvalues
     y2 = 0.5_jprb * (a(:)+b(:)+c(:)+d(:))
     y3 = sqrt(y2*y2 - (a(:)*c(:) + a(:)*d(:) + b(:)*d(:)))
@@ -1560,7 +1562,9 @@ contains
              &          + V(:,j2,3)*X(:,3,j1)
       end do
     end do
-
+! #ifdef USE_TIMING
+!      ret =  gptlstop('fast_expm_exchange_3')
+! #endif 
     if (lhook) call dr_hook('radiation_matrix:fast_expm_exchange_3',1,hook_handle)
 
   end subroutine fast_expm_exchange_3

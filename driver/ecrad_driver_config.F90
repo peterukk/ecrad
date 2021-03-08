@@ -29,6 +29,8 @@ module ecrad_driver_config
      logical :: do_parallel
      integer :: nblocksize ! Number of columns processed at once
 
+     logical :: block_derived_types
+
      ! Override values from the radiation_override namelist (mostly
      ! related to clouds): these will override any values in the
      ! NetCDF data file (or scale them)
@@ -160,6 +162,7 @@ contains
 
     ! Parallel settings
     logical :: do_parallel
+    logical :: block_derived_types
     integer :: nblocksize
 
     logical :: do_save_inputs, do_ignore_inhom_effective_size, &
@@ -191,7 +194,7 @@ contains
          &  do_write_hdf5, h2o_scaling, co2_scaling, o3_scaling, co_scaling, &
          &  ch4_scaling, o2_scaling, cfc11_scaling, cfc12_scaling, &
          &  hcfc22_scaling, no2_scaling, n2o_scaling, ccl4_scaling, &
-         &  vmr_suffix_str, experiment_name
+         &  vmr_suffix_str, experiment_name, block_derived_types
 
     real(jprb) :: hook_handle
 
@@ -199,6 +202,7 @@ contains
     
     ! Default values
     do_parallel = .true.
+    block_derived_types = .false.
     do_save_inputs = .false.
     do_ignore_inhom_effective_size = .false.
     nblocksize = 8
@@ -268,6 +272,7 @@ contains
 
     ! Copy namelist data into configuration object
     this%do_parallel = do_parallel
+    this%block_derived_types = block_derived_types
     this%do_save_inputs = do_save_inputs
     this%do_ignore_inhom_effective_size = do_ignore_inhom_effective_size
     this%nblocksize = nblocksize

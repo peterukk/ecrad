@@ -19,49 +19,155 @@ module radiation_ifs_rrtmgp
 
     implicit none
   
-    ! public  :: setup_gas_optics_ifs_rrtmgp, gas_optics_ifs_rrtmgp
+    public  :: setup_gas_optics_ifs_rrtmgp, gas_optics_ifs_rrtmgp
   
   contains
   
     !---------------------------------------------------------------------
     ! Setup the IFS implementation of RRTMGP gas absorption model
-    subroutine setup_gas_optics_ifs_rrtmgp(config, directory)
-  
-      use radiation_config
-      use yomhook,   only : lhook, dr_hook
-      use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
-      use mo_gas_concentrations, only: ty_gas_concs
+    subroutine setup_gas_optics_ifs_rrtmgp(config, gas_rrtmgp, solar_irradiance)
 
-      type(config_type), intent(inout), target :: config
-      character(len=*), intent(in)     :: directory
-  
-      integer :: irep ! For implied do
+     use parkind1,         only : jprb
+     use yomhook,          only : lhook, dr_hook
+     use radiation_config
+     use radiation_monochromatic,  only : &
+          &   setup_cloud_optics_mono   => setup_cloud_optics, &
+          &   setup_aerosol_optics_mono => setup_aerosol_optics
+     use radiation_cloud_optics,   only :  setup_cloud_optics
+     use radiation_aerosol_optics, only :  setup_aerosol_optics
+     use mo_load_coefficients,     only:   load_and_init
+     use mo_gas_concentrations,    only :  ty_gas_concs
+     use mo_gas_optics_rrtmgp,     only :  ty_gas_optics_rrtmgp
 
-      real(jprb) :: hook_handle
+     type(config_type),      intent(inout), target    :: config
+     type(ty_gas_concs),     intent(in)               :: gas_rrtmgp
+     real(jprb),             intent(in)               :: solar_irradiance  
 
-      type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
+     integer :: irep ! For implied do
 
-  
-      if (lhook) call dr_hook('radiation_ifs_rrtmgp:setup_gas_optics',0,hook_handle)
-  
-      ! The IFS implementation of RRTMG uses many global variables.  In
-      ! the IFS these will have been set up already; otherwise set them
-      ! up now.
+     integer, parameter :: RRTMGP_GPOINT_REORDERING_LW(256)  = (/ & 
+          & 225, 241, 226, 242, 227, 193, 228, 113, 114, 115, 97, 116, 194, 98, 81, 117, 229,  & 
+          & 243, 129, 82, 83, 118, 99, 84, 195, 85, 230, 86, 87, 100, 65, 119, 231, 177, 244, 88,  & 
+          & 66, 196, 130, 101, 232, 67, 102, 245, 233, 120, 89, 178, 197, 68, 131, 234, 103, 235,  & 
+          & 246, 198, 236, 90, 69, 179, 237, 33, 104, 91, 132, 238, 121, 34, 199, 92, 247, 239, 35,  & 
+          & 70, 93, 180, 133, 36, 240, 94, 105, 200, 122, 17, 95, 209, 37, 71, 123, 181, 248, 96,  & 
+          & 134, 124, 106, 38, 145, 201, 18, 107, 182, 72, 49, 135, 108, 125, 39, 146, 109, 210,  & 
+          & 202, 249, 161, 19, 110, 203, 183, 147, 50, 126, 204, 111, 73, 136, 148, 112, 51, 162,  & 
+          & 40, 205, 20, 250, 1, 127, 52, 128, 251, 163, 149, 211, 184, 74, 206, 252, 21, 53, 164,  & 
+          & 75, 253, 41, 137, 150, 54, 254, 76, 22, 207, 165, 2, 255, 212, 77, 256, 208, 185, 42,  & 
+          & 55, 78, 151, 166, 3, 23, 138, 43, 213, 139, 4, 79, 44, 56, 167, 186, 214, 140, 152, 45,  & 
+          & 5, 24, 80, 187, 141, 215, 46, 168, 6, 188, 57, 47, 142, 48, 153, 189, 216, 7, 25, 190,  & 
+          & 169, 143, 58, 154, 155, 191, 144, 59, 156, 8, 170, 157, 192, 26, 171, 217, 60, 158, & 
+          & 172, 61, 27, 159, 173, 160, 62, 174, 9, 63, 28, 175, 218, 64, 176, 219, 29, 220, 10, & 
+          & 11, 221, 30, 12, 222, 13, 223, 14, 224, 31, 15, 32, 16 /)
+     integer, parameter :: RRTMGP_GPOINT_REORDERING_SW(224)  = (/ & 
+          & 97, 81, 65, 113, 129, 49, 130, 82, 114, 131, 98, 115, 50, 66, 145, 116, 132, 146, & 
+          & 17, 117, 147, 51, 148, 1, 83, 118, 149, 133, 67, 150, 119, 161, 52, 162, 18, 151, 163, & 
+          & 120, 2, 164, 99, 165, 134, 68, 152, 166, 53, 167, 168, 169, 177, 170, 19, 171, 178, & 
+          & 172, 173, 179, 121, 69, 3, 180, 54, 174, 181, 84, 135, 182, 183, 184, 20, 185, 186, & 
+          & 187, 188, 189, 190, 191, 192, 175, 153, 100, 193, 70, 122, 55, 194, 176, 136, 21, 123, & 
+          & 33, 71, 195, 124, 4, 154, 56, 101, 22, 125, 155, 85, 72, 137, 126, 196, 34, 23, 102, & 
+          & 127, 156, 57, 128, 86, 5, 73, 138, 197, 24, 103, 157, 139, 209, 58, 87, 35, 210, 198, & 
+          & 74, 140, 59, 211, 75, 104, 199, 60, 25, 212, 6, 141, 200, 76, 158, 88, 36, 201, 202, & 
+          & 203, 204, 205, 206, 207, 208, 213, 61, 77, 142, 214, 215, 216, 217, 37, 218, 219, 220, & 
+          & 221, 222, 224, 223, 26, 105, 7, 27, 62, 78, 143, 28, 159, 38, 89, 29, 144, 63, 106, 30, & 
+          & 160, 79, 39, 8, 64, 31, 107, 32, 90, 108, 80, 91, 40, 109, 92, 93, 110, 9, 94, 111, 41, & 
+          & 112, 95, 96, 10, 42, 11, 43, 12, 44, 45, 13, 46, 47, 48, 14, 15, 16 /)
+     real(jprb) :: hook_handle
 
+     if (lhook) call dr_hook('radiation_ifs_rrtmgp:setup_gas_optics_ifs_rrtmgp',0,hook_handle)
+
+
+    ! Load neural nets (optional)
+     if (config%do_rrtmgp_neural_nets) then
+          call config%rrtmgp_neural_nets(1) % load(trim(config%rrtmgp_neural_net_sw_tau))
+          call config%rrtmgp_neural_nets(2) % load(trim(config%rrtmgp_neural_net_sw_ray))
+          call config%rrtmgp_neural_nets(3) % load(trim(config%rrtmgp_neural_net_lw_tau))
+          call config%rrtmgp_neural_nets(4) % load(trim(config%rrtmgp_neural_net_lw_pfrac))
+     end if
+     ! Load k-distributions
+     call load_and_init(config%k_dist_lw, trim(config%rrtmgp_gas_optics_file_name_lw), gas_rrtmgp)
+     call load_and_init(config%k_dist_sw, trim(config%rrtmgp_gas_optics_file_name_sw), gas_rrtmgp)
+
+     ! Scale the spectral solar source function with user-provided solar irradiance
+     call stop_on_err(config%k_dist_sw%set_tsi(solar_irradiance ))
+
+     ! Cloud and aerosol properties can only be defined per band
+     config%do_cloud_aerosol_per_sw_g_point = .false.
+     config%do_cloud_aerosol_per_lw_g_point = .false.
+
+     config%n_g_sw = config%k_dist_sw%get_ngpt()
+     config%n_g_lw = config%k_dist_lw%get_ngpt()
+
+     config%wavenumber1_sw = config%k_dist_sw%band_lims_wvn(1,:)
+     config%wavenumber2_sw = config%k_dist_sw%band_lims_wvn(2,:)
+
+     config%wavenumber1_lw = config%k_dist_lw%band_lims_wvn(1,:)
+     config%wavenumber2_lw = config%k_dist_lw%band_lims_wvn(2,:)
+
+     config%i_band_from_g_sw =  config%k_dist_sw%get_gpoint_bands() 
+     config%i_band_from_g_lw =  config%k_dist_lw%get_gpoint_bands() 
+
+     config%n_bands_sw = config%k_dist_sw%get_nband()
+     config%n_bands_lw = config%k_dist_lw%get_nband()
+
+     allocate(config%i_band_from_reordered_g_sw(config%n_g_sw))
+     allocate(config%i_band_from_reordered_g_lw(config%n_g_lw))
+     allocate(config%i_g_from_reordered_g_sw(config%n_g_sw))
+     allocate(config%i_g_from_reordered_g_lw(config%n_g_lw))
+
+     ! Store band positions if using generalized cloud or aerosol
+     call config%gas_optics_sw%spectral_def%allocate_bands_only(config%wavenumber1_sw, &
+          &                                                     config%wavenumber2_sw)
+     call config%gas_optics_lw%spectral_def%allocate_bands_only(config%wavenumber1_lw, &
+          &                                                     config%wavenumber2_lw)
+
+     if (config%i_solver_sw == ISolverSpartacus) then
+          ! SPARTACUS requires g points ordered in approximately
+          ! increasing order of optical depth
+          config%i_g_from_reordered_g_sw = RRTMGP_GPOINT_REORDERING_SW
+     else
+          ! Implied-do for no reordering
+          config%i_g_from_reordered_g_sw = (/ (irep, irep=1,config%n_g_sw) /)
+     end if
+
+     if (config%i_solver_lw == ISolverSpartacus) then
+          ! SPARTACUS requires g points ordered in approximately
+          ! increasing order of optical depth
+          config%i_g_from_reordered_g_lw = RRTMGP_GPOINT_REORDERING_LW
+     else
+          ! Implied-do for no reordering
+          config%i_g_from_reordered_g_lw = (/ (irep, irep=1,config%n_g_lw) /)
+     end if
+
+     config%i_band_from_reordered_g_sw &
+          = config%i_band_from_g_sw(config%i_g_from_reordered_g_sw)
+
+     config%i_band_from_reordered_g_lw &
+          = config%i_band_from_g_lw(config%i_g_from_reordered_g_lw)
+
+     ! The i_spec_* variables are used solely for storing spectral
+     ! data, and this can either be by band or by g-point
+     if (config%do_save_spectral_flux) then
+          if (config%do_save_gpoint_flux) then
+               config%n_spec_sw = config%n_g_sw
+               config%n_spec_lw = config%n_g_lw
+               config%i_spec_from_reordered_g_sw => config%i_g_from_reordered_g_sw
+               config%i_spec_from_reordered_g_lw => config%i_g_from_reordered_g_lw
+          else
+               config%n_spec_sw = config%n_bands_sw
+               config%n_spec_lw = config%n_bands_lw
+               config%i_spec_from_reordered_g_sw => config%i_band_from_reordered_g_sw
+               config%i_spec_from_reordered_g_lw => config%i_band_from_reordered_g_lw
+          end if
+     else
+          config%n_spec_sw = 0
+          config%n_spec_lw = 0
+          nullify(config%i_spec_from_reordered_g_sw)
+          nullify(config%i_spec_from_reordered_g_lw)
+     end if
 
     end subroutine setup_gas_optics_ifs_rrtmgp
-  
-  
-    !---------------------------------------------------------------------
-    ! Scale gas mixing ratios according to required units
-    subroutine set_gas_units(gas)
-  
-      use radiation_gas,           only : gas_type, IMassMixingRatio
-      type(gas_type),    intent(inout) :: gas
-  
-      call gas%set_units(IMassMixingRatio)
-  
-    end subroutine set_gas_units
   
   
     !---------------------------------------------------------------------
@@ -72,339 +178,194 @@ module radiation_ifs_rrtmgp
          &  od_lw, od_sw, ssa_sw, lw_albedo, planck_hl, lw_emission, &
          &  incoming_sw)
   
-      use parkind1,                 only : jprb, jpim
-      use yomhook,   only : lhook, dr_hook
+     use parkind1,                 only : jprb, jpim
+     use yomhook,   only : lhook, dr_hook
 
-      use radiation_config,         only : config_type, ISolverSpartacus
-      use radiation_thermodynamics, only : thermodynamics_type
-      use radiation_single_level,   only : single_level_type
-      use radiation_gas
-      use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
+     use radiation_config,         only : config_type, ISolverSpartacus
+     use radiation_thermodynamics, only : thermodynamics_type
+     use radiation_single_level,   only : single_level_type
+     use radiation_gas
+     use mo_gas_optics_rrtmgp,  only: ty_gas_optics_rrtmgp
+#ifdef USE_TIMING
+    ! Timing library
+     use gptl,                  only: gptlstart, gptlstop, gptlinitialize, gptlpr, &
+          & gptlfinalize, gptlsetoption, gptlpercent, gptloverhead
+#endif
+  
+     integer, intent(in) :: ncol               ! number of columns
+     integer, intent(in) :: nlev               ! number of model levels
+     type(config_type), intent(in) :: config
+     type(single_level_type),  intent(in) :: single_level
+     type(thermodynamics_type),intent(in) :: thermodynamics
+     type(gas_type),           intent(in) :: gas
 
-  
-      integer, intent(in) :: ncol               ! number of columns
-      integer, intent(in) :: nlev               ! number of model levels
-      type(config_type), intent(in) :: config
-      type(single_level_type),  intent(in) :: single_level
-      type(thermodynamics_type),intent(in) :: thermodynamics
-      type(gas_type),           intent(in) :: gas
-  
-      ! Longwave albedo of the surface
-      real(jprb), dimension(config%n_g_lw,ncol), &
-           &  intent(in), optional :: lw_albedo
-  
-      ! Gaseous layer optical depth in longwave and shortwave, and
-      ! shortwave single scattering albedo (i.e. fraction of extinction
-      ! due to Rayleigh scattering) at each g-point
-      real(jprb), dimension(config%n_g_lw,nlev,ncol), intent(out) :: &
-           &   od_lw
-      real(jprb), dimension(config%n_g_sw,nlev,ncol), intent(out) :: &
-           &   od_sw, ssa_sw
-  
-      ! The Planck function (emitted flux from a black body) at half
-      ! levels at each longwave g-point
-      real(jprb), dimension(config%n_g_lw,nlev+1,ncol), &
-           &   intent(out), optional :: planck_hl
-      ! Planck function for the surface (W m-2)
-      real(jprb), dimension(config%n_g_lw,ncol), &
-           &   intent(out), optional :: lw_emission
-  
-      ! The incoming shortwave flux into a plane perpendicular to the
-      ! incoming radiation at top-of-atmosphere in each of the shortwave
-      ! g-points
-      real(jprb), dimension(config%n_g_sw,ncol), &
-           &   intent(out), optional :: incoming_sw
-  
-      real(jprb) :: incoming_sw_scale(ncol)
-  
+     ! Longwave albedo of the surface
+     real(jprb), dimension(config%n_g_lw,ncol), intent(in)  :: lw_albedo
 
-      integer :: jlev, jgreorder, jg, ig, iband, jcol
-  
-      real(jprb) :: hook_handle
-  
-      
-      if (lhook) call dr_hook('radiation_ifs_rrtm:gas_optics',1,hook_handle)
+     ! Gaseous layer optical depth in longwave and shortwave, and
+     ! shortwave single scattering albedo (i.e. fraction of extinction
+     ! due to Rayleigh scattering) at each g-point
+     real(jprb), dimension(config%n_g_lw,nlev,ncol), intent(out) :: od_lw
+     real(jprb), dimension(config%n_g_sw,nlev,ncol), intent(out) :: od_sw, ssa_sw
+
+     ! The Planck function (emitted flux from a black body) at half
+     ! levels at each longwave g-point
+     real(jprb), dimension(config%n_g_lw,nlev+1,ncol), intent(out)   :: planck_hl
+     ! Planck function for the surface (W m-2)
+     real(jprb), dimension(config%n_g_lw,ncol),      intent(out)     :: lw_emission
+
+     ! The incoming shortwave flux into a plane perpendicular to the
+     ! incoming radiation at top-of-atmosphere in each of the shortwave
+     ! g-points
+     real(jprb), dimension(config%n_g_sw,ncol),  intent(out)         :: incoming_sw
+
+     ! RRTMGP sources are provided in W/m2-str; factor of pi converts to flux units
+     real(jprb), parameter :: pi = acos(-1._jprb)
+
+     integer :: ret, jcol, jlev
+
+     real(jprb) :: hook_handle
+
+     
+     if (lhook) call dr_hook('radiation_ifs_rrtm:gas_optics',1,hook_handle)
+
+#ifdef USE_TIMING
+    ret =  gptlstart('gas_optics_sw')
+#endif     
+
+     if (config%do_sw) then
+
+     ! Scale the spectral solar source function with user-provided solar irradiance
+     ! call stop_on_err(config%k_dist_sw%set_tsi(single_level%solar_irradiance ))
+
+          if (config%do_rrtmgp_neural_nets) then
+          
+               call stop_on_err(config%k_dist_sw%gas_optics_ext_ecrad( &
+                    &   ncol, nlev, config%n_g_sw, &
+                    &   thermodynamics%pressure_fl_reverse, &
+                    &   thermodynamics%pressure_hl_reverse, &
+                    &   thermodynamics%temperature_fl_reverse, &
+                    &   gas%gas_rrtmgp, &
+                    &   od_sw, ssa_sw, incoming_sw, &
+                    &   neural_nets = config%rrtmgp_neural_nets(1:2))) 
+          else 
+               call stop_on_err(config%k_dist_sw%gas_optics_ext_ecrad( &
+                    &   ncol, nlev, config%n_g_sw, &
+                    &   thermodynamics%pressure_fl_reverse, &
+                    &   thermodynamics%pressure_hl_reverse, &
+                    &   thermodynamics%temperature_fl_reverse, &
+                    &   gas%gas_rrtmgp, &
+                    &   od_sw, ssa_sw, incoming_sw)) 
+          end if
+          
+          if (config%i_solver_lw == ISolverSpartacus) then
+               !    if (.true.) then
+               ! We need to rearrange the gas optics info in memory: reordering
+               ! the g points in order of approximately increasing optical
+               ! depth (for efficient 3D processing on only the regions of the
+               ! spectrum that are optically thin for gases) and reorder in
+               ! pressure since the the functions above treat pressure
+               ! decreasing with increasing index.  Note that the output gas
+               ! arrays have dimensions in a different order to the inputs,
+               ! so there is some inefficiency here.
+               do jcol = 1,ncol
+                    incoming_sw(:,jcol) = incoming_sw(config%i_g_from_reordered_g_sw,jcol)
+                    do jlev = 1, nlev
+                         od_sw(:,jlev,jcol) = od_sw(config%i_g_from_reordered_g_sw,jlev,jcol)
+                         ssa_sw(:,jlev,jcol) = ssa_sw(config%i_g_from_reordered_g_sw,jlev,jcol)
+                    end do
+               end do
+          end if
+
+     end if
+#ifdef USE_TIMING
+    ret =  gptlstop('gas_optics_sw')
+    ret =  gptlstart('gas_optics_lw')
+#endif  
+
+     if (config%do_lw) then
+          if (config%do_rrtmgp_neural_nets) then
+
+               call stop_on_err(config%k_dist_lw%gas_optics_int_ecrad( &
+                    &   ncol, nlev, config%n_g_lw, &
+                    &   thermodynamics%pressure_fl_reverse, &
+                    &   thermodynamics%pressure_hl_reverse, &
+                    &   thermodynamics%temperature_fl_reverse, &
+                    &   thermodynamics%temperature_hl_reverse, &
+                    &   single_level%skin_temperature, &
+                    &   gas%gas_rrtmgp, &
+                    &   od_lw, lw_emission, planck_hl, &
+                    &   neural_nets = config%rrtmgp_neural_nets(3:4))) 
+          else 
+
+               call stop_on_err(config%k_dist_lw%gas_optics_int_ecrad( &
+               &   ncol, nlev, config%n_g_lw, &
+               &   thermodynamics%pressure_fl_reverse, &
+               &   thermodynamics%pressure_hl_reverse, &
+               &   thermodynamics%temperature_fl_reverse, &
+               &   thermodynamics%temperature_hl_reverse, &
+               &   single_level%skin_temperature, &
+               &   gas%gas_rrtmgp, &
+               &   od_lw, lw_emission, planck_hl))
+          end if
+          if (single_level%is_simple_surface) then
+               ! lw_emission at this point is actually the planck function of
+               ! the surface
+               lw_emission = lw_emission * (1.0_jprb - lw_albedo)
+          else
+          ! Longwave emission has already been computed
+               if (config%use_canopy_full_spectrum_lw) then
+               lw_emission = transpose(single_level%lw_emission(1:ncol,:))
+               else
+               lw_emission = transpose(single_level%lw_emission(1:ncol, &
+                    & config%i_emiss_from_band_lw(config%i_band_from_reordered_g_lw)))
+               end if
+          end if
+          ! RRTMGP sources are provided in W/m2-str; factor of pi converts to flux units
+          planck_hl = planck_hl * pi 
+          ! source%lay_source = source%lay_source * pi 
+          lw_emission = lw_emission * pi
+
+          if (config%i_solver_lw == ISolverSpartacus) then
+               !    if (.true.) then
+               ! We need to rearrange the gas optics info in memory: reordering
+               ! the g points in order of approximately increasing optical
+               ! depth (for efficient 3D processing on only the regions of the
+               ! spectrum that are optically thin for gases) and reorder in
+               ! pressure since the the functions above treat pressure
+               ! decreasing with increasing index.  Note that the output gas
+               ! arrays have dimensions in a different order to the inputs,
+               ! so there is some inefficiency here.
+               do jcol = 1,ncol
+                    lw_emission(:,jcol) = lw_emission(config%i_g_from_reordered_g_lw,jcol)
+                    do jlev = 1, nlev
+                         od_lw(:,jlev,jcol) = od_lw(config%i_g_from_reordered_g_lw,jlev,jcol)
+                         planck_hl(:,jlev,jcol) = planck_hl(config%i_g_from_reordered_g_lw,jlev,jcol)
+                    end do
+                    planck_hl(:,nlev+1,jcol) = planck_hl(config%i_g_from_reordered_g_lw,nlev+1,jcol)
+               end do
+          end if 
+      end if
+
+#ifdef USE_TIMING
+    ret =  gptlstop('gas_optics_lw')
+#endif 
       
     end subroutine gas_optics_ifs_rrtmgp
-    
-  
-    !---------------------------------------------------------------------
-    ! Compute Planck function of the atmosphere
-    ! subroutine planck_function_atmos(nlev,istartcol,iendcol, &
-    !      config, thermodynamics, PFRAC, &
-    !      planck_hl)
-  
-    !   use parkind1,                 only : jprb, jpim
-  
-    !   use radiation_config,         only : config_type, ISolverSpartacus
-    !   use radiation_thermodynamics, only : thermodynamics_type
-    !   !use radiation_gas
-  
-    !   integer, intent(in) :: nlev               ! number of model levels
-    !   integer, intent(in) :: istartcol, iendcol ! range of columns to process
-    !   type(config_type), intent(in) :: config
-    !   type(thermodynamics_type),intent(in) :: thermodynamics
-    !   real(jprb), intent(in) :: PFRAC(istartcol:iendcol,JPGPT_LW,nlev)
-  
-    !   ! The Planck function (emitted flux from a black body) at half
-    !   ! levels at each longwave g-point
-    !   real(jprb), dimension(config%n_g_lw,nlev+1,istartcol:iendcol), intent(out) :: &
-    !        &   planck_hl
-  
-    !   ! Planck function values per band
-    !   real(jprb), dimension(istartcol:iendcol, config%n_bands_lw) :: planck_store
-  
-    !   ! Look-up table variables for Planck function
-    !   real(jprb), dimension(istartcol:iendcol) :: frac
-    !   integer,    dimension(istartcol:iendcol) :: ind
-  
-    !   ! Temperature (K) of a half-level
-    !   real(jprb) :: temperature
-  
-    !   real(jprb) :: factor
-    !   real(jprb) :: ZFLUXFAC
-  
-    !   integer :: jlev, jgreorder, jg, ig, iband, jband, jcol, ilevoffset
-  
-    !   real(jprb) :: hook_handle
-  
-    !   if (lhook) call dr_hook('radiation_ifs_rrtmgp:planck_function_atmos',0,hook_handle)
-  
-    !   ZFLUXFAC = 2.0_jprb*ASIN(1.0_jprb) * 1.0e4_jprb
-      
-    !   ! nlev may be less than the number of original levels, in which
-    !   ! case we assume that the user wants the lower part of the
-    !   ! atmosphere
-    !   ilevoffset = ubound(thermodynamics%temperature_hl,2)-nlev-1
-  
-    !   ! Work out interpolations: for each half level, the index of the
-    !   ! lowest interpolation bound, and the fraction into interpolation
-    !   ! interval
-    !   do jlev = 1,nlev+1
-    !     do jcol = istartcol,iendcol
-    !       temperature = thermodynamics%temperature_hl(jcol,jlev+ilevoffset)
-    !       if (temperature < 339.0_jprb .and. temperature >= 160.0_jprb) then
-    !         ! Linear interpolation between -113 and 66 degC
-    !         ind(jcol)  = int(temperature - 159.0_jprb)
-    !         frac(jcol) = temperature - int(temperature)
-    !       else if(temperature >= 339.0_jprb) then
-    !         ! Extrapolation above 66 degC
-    !         ind(jcol)  = 180
-    !         frac(jcol) = temperature - 339.0_jprb
-    !       else
-    !         ! Cap below -113 degC (to avoid possible negative Planck
-    !         ! function values)
-    !         ind(jcol)  = 1
-    !         frac(jcol) = 0.0_jprb
-    !       end if
-    !     end do
-  
-    !     ! Calculate Planck functions per band
-    !     do jband = 1,config%n_bands_lw
-    !       factor = zfluxfac * delwave(jband)
-    !       do jcol = istartcol,iendcol
-    !         planck_store(jcol,jband) = factor &
-    !              &  * (totplnk(ind(jcol),jband) &
-    !              &  + frac(jcol)*(totplnk(ind(jcol)+1,jband)-totplnk(ind(jcol),jband)))
-    !       end do
-    !     end do
-  
-    !     if (config%i_solver_lw == ISolverSpartacus) then
-    !       ! We need to rearrange the gas optics info in memory:
-    !       ! reordering the g points in order of approximately increasing
-    !       ! optical depth (for efficient 3D processing on only the
-    !       ! regions of the spectrum that are optically thin for gases)
-    !       ! and reorder in pressure since the the functions above treat
-    !       ! pressure decreasing with increasing index.
-    !       if (jlev == 1) then
-    !         ! Top-of-atmosphere half level - note that PFRAC is on model
-    !         ! levels not half levels
-    !         do jgreorder = 1,config%n_g_lw
-    !           iband = config%i_band_from_reordered_g_lw(jgreorder)
-    !           ig = config%i_g_from_reordered_g_lw(jgreorder)
-    !           planck_hl(jgreorder,1,:) = planck_store(:,iband) &
-    !                &   * PFRAC(:,ig,nlev)
-    !         end do
-    !       else
-    !         do jgreorder = 1,config%n_g_lw
-    !           iband = config%i_band_from_reordered_g_lw(jgreorder)
-    !           ig = config%i_g_from_reordered_g_lw(jgreorder)
-    !           planck_hl(jgreorder,jlev,:) &
-    !                  &   = planck_store(:,iband) &
-    !                  &   * PFRAC(:,ig,nlev+2-jlev)
-    !         end do
-    !       end if
-    !     else
-    !       ! G points have not been reordered 
-    !       if (jlev == 1) then
-    !         ! Top-of-atmosphere half level - note that PFRAC is on model
-    !         ! levels not half levels
-    !         do jg = 1,config%n_g_lw
-    !           iband = config%i_band_from_g_lw(jg)
-    !           planck_hl(jg,1,:) = planck_store(:,iband) * PFRAC(:,jg,nlev)
-    !         end do
-    !       else
-    !         do jg = 1,config%n_g_lw
-    !           iband = config%i_band_from_g_lw(jg)
-    !           planck_hl(jg,jlev,:) = planck_store(:,iband) * PFRAC(:,jg,nlev+2-jlev)
-    !         end do
-    !       end if
-    !     end if
-    !   end do
-  
-    !   if (lhook) call dr_hook('radiation_ifs_rrtmgp:planck_function_atmos',1,hook_handle)
-  
-    ! end subroutine planck_function_atmos
-  
-  
-    !---------------------------------------------------------------------
-    ! Compute Planck function of the surface
-    ! subroutine planck_function_surf(istartcol, iendcol, config, temperature, PFRAC, &
-    !      &  planck_surf)
-  
-    !   use parkind1,                 only : jprb, jpim
-  
-    !   USE YOERRTM  , ONLY : JPGPT_LW => JPGPT
-    !   use yoerrtwn, only : totplnk, delwave
-  
-    !   use yomhook, only : lhook, dr_hook
-  
-    !   use radiation_config,         only : config_type, ISolverSpartacus
-    !   !    use radiation_gas
-  
-    !   integer, intent(in) :: istartcol, iendcol ! range of columns to process
-    !   type(config_type), intent(in) :: config
-    !   real(jprb), intent(in) :: temperature(:)
-  
-    !   real(jprb), intent(in) :: PFRAC(istartcol:iendcol,JPGPT_LW)
-  
-    !   ! Planck function of the surface (W m-2)
-    !   real(jprb), dimension(config%n_g_lw,istartcol:iendcol), &
-    !        &  intent(out) :: planck_surf
-  
-    !   ! Planck function values per band
-    !   real(jprb), dimension(istartcol:iendcol, config%n_bands_lw) :: planck_store
-  
-    !   ! Look-up table variables for Planck function
-    !   real(jprb), dimension(istartcol:iendcol) :: frac
-    !   integer,    dimension(istartcol:iendcol) :: ind
-  
-    !   ! Temperature (K)
-    !   real(jprb) :: Tsurf
-  
-    !   real(jprb) :: factor
-    !   real(jprb) :: ZFLUXFAC
-  
-    !   integer :: jgreorder, jg, ig, iband, jband, jcol
-  
-    !   real(jprb) :: hook_handle
-  
-    !   if (lhook) call dr_hook('radiation_ifs_rrtm:planck_function_surf',0,hook_handle)
-  
-    !   ZFLUXFAC = 2.0_jprb*ASIN(1.0_jprb) * 1.0e4_jprb
-  
-    !   ! Work out surface interpolations
-    !   do jcol = istartcol,iendcol
-    !     Tsurf = temperature(jcol)
-    !     if (Tsurf < 339.0_jprb .and. Tsurf >= 160.0_jprb) then
-    !       ! Linear interpolation between -113 and 66 degC
-    !       ind(jcol)  = int(Tsurf - 159.0_jprb)
-    !       frac(jcol) = Tsurf - int(Tsurf)
-    !     else if(Tsurf >= 339.0_jprb) then
-    !       ! Extrapolation above 66 degC
-    !       ind(jcol)  = 180
-    !       frac(jcol) = Tsurf - 339.0_jprb
-    !     else
-    !       ! Cap below -113 degC (to avoid possible negative Planck
-    !       ! function values)
-    !       ind(jcol)  = 1
-    !       frac(jcol) = 0.0_jprb
-    !     end if
-    !   end do
-  
-    !   ! Calculate Planck functions per band
-    !   do jband = 1,config%n_bands_lw
-    !     factor = zfluxfac * delwave(jband)
-    !     do jcol = istartcol,iendcol
-    !       planck_store(jcol,jband) = factor &
-    !            &  * (totplnk(ind(jcol),jband) &
-    !            &  + frac(jcol)*(totplnk(ind(jcol)+1,jband)-totplnk(ind(jcol),jband)))
-    !     end do
-    !   end do
-  
-    !   if (config%i_solver_lw == ISolverSpartacus) then
-    !     ! We need to rearrange the gas optics info in memory: reordering
-    !     ! the g points in order of approximately increasing optical
-    !     ! depth (for efficient 3D processing on only the regions of
-    !     ! the spectrum that are optically thin for gases) and reorder
-    !     ! in pressure since the the functions above treat pressure
-    !     ! decreasing with increasing index.
-    !     do jgreorder = 1,config%n_g_lw
-    !       iband = config%i_band_from_reordered_g_lw(jgreorder)
-    !       ig = config%i_g_from_reordered_g_lw(jgreorder)
-    !       planck_surf(jgreorder,:) = planck_store(:,iband) * PFRAC(:,ig)
-    !     end do
-    !   else
-    !     ! G points have not been reordered 
-    !     do jg = 1,config%n_g_lw
-    !       iband = config%i_band_from_g_lw(jg)
-    !       planck_surf(jg,:) = planck_store(:,iband) * PFRAC(:,jg)
-    !     end do
-    !   end if
-  
-    !   if (lhook) call dr_hook('radiation_ifs_rrtm:planck_function_surf',1,hook_handle)
-      
-    ! end subroutine planck_function_surf
-  
-  
-    ! !---------------------------------------------------------------------
-    ! ! Externally facing function for computing the Planck function
-    ! ! without reference to any gas profile; typically this would be used
-    ! ! for computing the emission by facets of a complex surface.  Note
-    ! ! that this uses fixed "PFRAC" values, obtained by averaging over
-    ! ! those derived from RRTM-G for near-surface conditions over a line
-    ! ! of meridian from the ECMWF model.
-    ! subroutine planck_function(config, temperature, planck_surf)
-  
-    !   use parkind1,                 only : jprb, jpim
-  
-    !   use radiation_config,         only : config_type
-  
-    !   type(config_type), intent(in) :: config
-    !   real(jprb), intent(in) :: temperature
-  
-    !   ! Planck function of the surface (W m-2)
-    !   real(jprb), dimension(config%n_g_lw), &
-    !        &  intent(out) :: planck_surf
-  
-    !   ! Fraction of each band contributed by each g-point within
-    !   ! it. Since there are 16 bands, this array sums to 16
-    !   real(jprb), parameter, dimension(1,140) :: frac &
-    !        = reshape( (/ 0.21227E+00, 0.18897E+00, 0.25491E+00, 0.17864E+00, 0.11735E+00, 0.38298E-01, 0.57871E-02, &
-    !        &    0.31753E-02, 0.53169E-03, 0.76476E-04, 0.16388E+00, 0.15241E+00, 0.14290E+00, 0.12864E+00, &
-    !        &    0.11615E+00, 0.10047E+00, 0.80013E-01, 0.60445E-01, 0.44918E-01, 0.63395E-02, 0.32942E-02, &
-    !        &    0.54541E-03, 0.15380E+00, 0.15194E+00, 0.14339E+00, 0.13138E+00, 0.11701E+00, 0.10081E+00, &
-    !        &    0.82296E-01, 0.61735E-01, 0.41918E-01, 0.45918E-02, 0.37743E-02, 0.30121E-02, 0.22500E-02, &
-    !        &    0.14490E-02, 0.55410E-03, 0.78364E-04, 0.15938E+00, 0.15146E+00, 0.14213E+00, 0.13079E+00, &
-    !        &    0.11672E+00, 0.10053E+00, 0.81566E-01, 0.61126E-01, 0.41150E-01, 0.44488E-02, 0.36950E-02, &
-    !        &    0.29101E-02, 0.21357E-02, 0.19609E-02, 0.14134E+00, 0.14390E+00, 0.13913E+00, 0.13246E+00, &
-    !        &    0.12185E+00, 0.10596E+00, 0.87518E-01, 0.66164E-01, 0.44862E-01, 0.49402E-02, 0.40857E-02, &
-    !        &    0.32288E-02, 0.23613E-02, 0.15406E-02, 0.58258E-03, 0.82171E-04, 0.29127E+00, 0.28252E+00, &
-    !        &    0.22590E+00, 0.14314E+00, 0.45494E-01, 0.71792E-02, 0.38483E-02, 0.65712E-03, 0.29810E+00, &
-    !        &    0.27559E+00, 0.11997E+00, 0.10351E+00, 0.84515E-01, 0.62253E-01, 0.41050E-01, 0.44217E-02, &
-    !        &    0.36946E-02, 0.29113E-02, 0.34290E-02, 0.55993E-03, 0.31441E+00, 0.27586E+00, 0.21297E+00, &
-    !        &    0.14064E+00, 0.45588E-01, 0.65665E-02, 0.34232E-02, 0.53199E-03, 0.19811E+00, 0.16833E+00, &
-    !        &    0.13536E+00, 0.11549E+00, 0.10649E+00, 0.93264E-01, 0.75720E-01, 0.56405E-01, 0.41865E-01, &
-    !        &    0.59331E-02, 0.26510E-02, 0.40040E-03, 0.32328E+00, 0.26636E+00, 0.21397E+00, 0.14038E+00, &
-    !        &    0.52142E-01, 0.38852E-02, 0.14601E+00, 0.13824E+00, 0.27703E+00, 0.22388E+00, 0.15446E+00, &
-    !        &    0.48687E-01, 0.98054E-02, 0.18870E-02, 0.11961E+00, 0.12106E+00, 0.13215E+00, 0.13516E+00, &
-    !        &    0.25249E+00, 0.16542E+00, 0.68157E-01, 0.59725E-02, 0.49258E+00, 0.33651E+00, 0.16182E+00, &
-    !        &    0.90984E-02, 0.95202E+00, 0.47978E-01, 0.91716E+00, 0.82857E-01, 0.77464E+00, 0.22536E+00 /), (/ 1,140 /) )
-  
-    !   call planck_function_surf(1, 1, config, spread(temperature,1,1), &
-    !        &                    frac, planck_surf)
-  
-    ! end subroutine planck_function
+
+
+  subroutine stop_on_err(error_msg)
+     use iso_fortran_env, only : error_unit
+     use iso_c_binding
+     character(len=*), intent(in) :: error_msg
+   
+     if(error_msg /= "") then
+       write (error_unit,*) trim(error_msg)
+       write (error_unit,*) "radiation_interface stopping"
+       stop
+     end if
+   end subroutine stop_on_err
+
   
   end module radiation_ifs_rrtmgp
   

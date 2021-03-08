@@ -31,6 +31,14 @@ module radiation_thermodynamics
           &  pressure_hl, &   ! (ncol,nlev+1) pressure (Pa)
           &  temperature_hl   ! (ncol,nlev+1) temperature (K)
 
+      ! Column-last pressure and temperature at half-levels and full levels, 
+      ! only used for RRTMGP
+          real(jprb), allocatable, dimension(:,:) :: &
+          &  pressure_hl_reverse, &     ! (nlev+1, ncol) pressure (Pa)
+          &  temperature_hl_reverse, &   ! (nlev+1, ncol) temperature (K)
+          &  pressure_fl_reverse, &     ! (nlev,   ncol) pressure (Pa)
+          &  temperature_fl_reverse     ! (nlev,   ncol) temperature (K)     
+
      ! The following is a function of pressure and temperature: you
      ! can calculate it according to your favourite formula, or the
      ! calc_saturation_wrt_liquid subroutine can be used to do this
@@ -296,7 +304,7 @@ contains
   function out_of_physical_bounds(this, istartcol, iendcol, do_fix) result(is_bad)
 
     use yomhook,          only : lhook, dr_hook
-    use radiation_config, only : out_of_bounds_2d
+    use radiation_check,  only : out_of_bounds_2d
 
     class(thermodynamics_type), intent(inout) :: this
     integer,           optional,intent(in) :: istartcol, iendcol
